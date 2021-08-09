@@ -117,8 +117,8 @@ def lr_find_plot(learner, path, filename="lr_find", n_skip=10, n_skip_end=2):
     '''saves lr_find plot as file (normally only jupyter output)
     on the x-axis is lrs[-1]
     '''
-    learner.lr_find()
-    
+    lr_find(learner, num_it = 5)
+
     backend_old= matplotlib.get_backend()
     plt.switch_backend('agg')
     plt.ylabel("loss")
@@ -233,7 +233,7 @@ class fastai_model(ClassificationModel):
                 learn.model.set_output_layer(output_layer_new)
             
             lr_find_plot(learn, self.outputfolder)    
-            learn.fit_one_cycle(self.epochs,self.lr)#slice(self.lr) if self.discriminative_lrs else self.lr)
+            fit_one_cycle(learn, self.epochs, self.lr)#slice(self.lr) if self.discriminative_lrs else self.lr)
             losses_plot(learn, self.outputfolder)
         else: #finetuning
             print("Finetuning...")
@@ -265,7 +265,7 @@ class fastai_model(ClassificationModel):
                 assert(self.discriminative_lrs is True)
                 learn.freeze()
                 lr_find_plot(learn, self.outputfolder,"lr_find0")
-                learn.fit_one_cycle(self.epochs_finetuning,lr)
+                fit_one_cycle(learn, self.epochs_finetuning, lr)
                 losses_plot(learn, self.outputfolder,"losses0")
                 #for n in [0]:#range(len(layer_groups)):
                 #    learn.freeze_to(-n-1)
@@ -278,13 +278,13 @@ class fastai_model(ClassificationModel):
                     #    lr/=10
                     
             learn.unfreeze()
-            lr_find_plot(learn, self.outputfolder,"lr_find"+str(len(layer_groups)))
-            learn.fit_one_cycle(self.epochs_finetuning,slice(lr/1000,lr/10))
-            losses_plot(learn, self.outputfolder,"losses"+str(len(layer_groups)))
+            lr_find_plot(learn, self.outputfolder, "lr_find"+str(len(layer_groups)))
+            fit_one_cycle(learn, self.epochs_finetuning, slice(lr/1000,lr/10))
+            losses_plot(learn, self.outputfolder, "losses"+str(len(layer_groups)))
 
         learn.save(self.name) #even for early stopping the best model will have been loaded again
     
-    def predict(self, X):
+    def predict(self, X, filename):
         X = [l.astype(np.float32) for l in X]
         y_dummy = [np.ones(self.num_classes,dtype=np.float32) for _ in range(len(X))]
         

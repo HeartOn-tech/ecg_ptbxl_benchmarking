@@ -83,8 +83,8 @@ def get_ecg_features(ecg_data, parallel=True):
         return np.array(list_features)
 
 # for keras models
-#def keras_macro_auroc(y_true, y_pred):
-#    return tf.py_func(macro_auroc, (y_true, y_pred), tf.double)
+def keras_macro_auroc(y_true, y_pred):
+    return tf.py_func(macro_auroc, (y_true, y_pred), tf.double)
 
 class WaveletModel(ClassificationModel):
     def __init__(self, name, n_classes,  freq, outputfolder, input_shape, regularizer_C=.001, classifier='RF'):
@@ -103,8 +103,8 @@ class WaveletModel(ClassificationModel):
         self.epochs=30
 
     def fit(self, X_train, y_train, X_val, y_val):
-        XF_train = get_ecg_features(X_train)
-        XF_val = get_ecg_features(X_val)
+        XF_train = get_ecg_features(X_train, False)
+        XF_val = get_ecg_features(X_val, False)
         
         if self.classifier == 'LR':
             if self.n_classes > 1:
@@ -137,8 +137,15 @@ class WaveletModel(ClassificationModel):
             self.model.fit(XFT_train, y_train, validation_data=(XFT_val, y_val), epochs=self.epochs, batch_size=128, callbacks=[mc_loss])#, mc_score])
             self.model.save(self.outputfolder +'last_model.h5')
 
-    def predict(self, X):
-        XF = get_ecg_features(X)
+    def predict(self, X, datatype):
+        filename = 'XF_' + datatype + '.npy'
+        XF_path = self.outputfolder + filename
+        if not os.path.exists(XF_path):
+            XF = get_ecg_features(X, False)
+            XF.dump(XF_path)
+        else:
+            XF = np.load(XF_path, allow_pickle=True)
+
         if self.classifier == 'LR':
             clf = pickle.load(open(self.outputfolder+'clf.pkl', 'rb'))
             if self.n_classes > 1:
@@ -153,7 +160,17 @@ class WaveletModel(ClassificationModel):
             else:
                 return y_pred[:,1][:,np.newaxis]
         elif self.classifier == 'NN':
-            ss = pickle.load(open(self.outputfolder+'ss.pkl', 'rb'))#
+            SS_path = self.outputfolder+'ss.pkl'
+            if not os.path.exists(SS_path):
+                if datatype == 'train':
+                    ss = StandardScaler()
+                    ss.fit(XF)
+                    pickle.dump(ss, open(SS_path, 'wb'))
+                #else:
+                    # error
+            else:
+                ss = pickle.load(open(SS_path, 'rb'))
+
             XFT = ss.transform(XF)
-            model = load_model(self.outputfolder+'best_loss_model.h5')#'best_score_model.h5', custom_objects={'keras_macro_auroc': keras_macro_auroc})
+            model = load_model(self.outputfolder+'best_loss_model.h5', custom_objects={'keras_macro_auroc': keras_macro_auroc}) #'best_score_model.h5', custom_objects={'keras_macro_auroc': keras_macro_auroc})
             return model.predict(XFT)

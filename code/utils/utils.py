@@ -113,18 +113,20 @@ def apply_thresholds(preds, thresholds):
 
 # DATA PROCESSING STUFF
 
-def load_dataset(path, sampling_rate, release=False):
-    if path.split('/')[-2] == 'ptbxl':
+def load_dataset(data_name, path, sampling_rate, release=False):
+    # if path.split('/')[-2] == 'ptbxl':
+    if data_name == 'ptbxl':
         # load and convert annotation data
-        Y = pd.read_csv(path+'ptbxl_database.csv', index_col='ecg_id')
+        Y = pd.read_csv(os.path.join(path, 'ptbxl_database.csv'), index_col='ecg_id')
         Y.scp_codes = Y.scp_codes.apply(lambda x: ast.literal_eval(x))
 
         # Load raw signal data
         X = load_raw_data_ptbxl(Y, sampling_rate, path)
 
-    elif path.split('/')[-2] == 'ICBEB':
+    # elif path.split('/')[-2] == 'ICBEB':
+    elif data_name == 'ICBEB':
         # load and convert annotation data
-        Y = pd.read_csv(path+'icbeb_database.csv', index_col='ecg_id')
+        Y = pd.read_csv(os.path.join(path, 'icbeb_database.csv'), index_col='ecg_id')
         Y.scp_codes = Y.scp_codes.apply(lambda x: ast.literal_eval(x))
 
         # Load raw signal data
@@ -136,43 +138,47 @@ def load_dataset(path, sampling_rate, release=False):
 def load_raw_data_icbeb(df, sampling_rate, path):
 
     if sampling_rate == 100:
-        if os.path.exists(path + 'raw100.npy'):
-            data = np.load(path+'raw100.npy', allow_pickle=True)
+        fullpath = os.path.join(path, 'raw100.npy')
+        if os.path.exists(fullpath):
+            data = np.load(fullpath, allow_pickle=True)
         else:
-            data = [wfdb.rdsamp(path + 'records100/'+str(f)) for f in tqdm(df.index)]
+            data = [wfdb.rdsamp(os.path.join(path, 'records100', str(f))) for f in tqdm(df.index)]
             data = np.array([signal for signal, meta in data])
-            pickle.dump(data, open(path+'raw100.npy', 'wb'), protocol=4)
+            pickle.dump(data, open(fullpath, 'wb'), protocol=4)
     elif sampling_rate == 500:
-        if os.path.exists(path + 'raw500.npy'):
-            data = np.load(path+'raw500.npy', allow_pickle=True)
+        fullpath = os.path.join(path, 'raw500.npy')
+        if os.path.exists(fullpath):
+            data = np.load(fullpath, allow_pickle=True)
         else:
-            data = [wfdb.rdsamp(path + 'records500/'+str(f)) for f in tqdm(df.index)]
+            data = [wfdb.rdsamp(os.path.join(path, 'records500', str(f))) for f in tqdm(df.index)]
             data = np.array([signal for signal, meta in data])
-            pickle.dump(data, open(path+'raw500.npy', 'wb'), protocol=4)
+            pickle.dump(data, open(fullpath, 'wb'), protocol=4)
     return data
 
 def load_raw_data_ptbxl(df, sampling_rate, path):
     if sampling_rate == 100:
-        if os.path.exists(path + 'raw100.npy'):
-            data = np.load(path+'raw100.npy', allow_pickle=True)
+        fullpath = os.path.join(path, 'raw100.npy')
+        if os.path.exists(fullpath):
+            data = np.load(fullpath, allow_pickle=True)
         else:
-            data = [wfdb.rdsamp(path+f) for f in tqdm(df.filename_lr)]
+            data = [wfdb.rdsamp(os.path.join(path, f)) for f in tqdm(df.filename_lr)]
             data = np.array([signal for signal, meta in data])
-            pickle.dump(data, open(path+'raw100.npy', 'wb'), protocol=4)
+            pickle.dump(data, open(fullpath, 'wb'), protocol=4)
     elif sampling_rate == 500:
-        if os.path.exists(path + 'raw500.npy'):
-            data = np.load(path+'raw500.npy', allow_pickle=True)
+        fullpath = os.path.join(path, 'raw500.npy')
+        if os.path.exists(fullpath):
+            data = np.load(fullpath, allow_pickle=True)
         else:
-            data = [wfdb.rdsamp(path+f) for f in tqdm(df.filename_hr)]
+            data = [wfdb.rdsamp(os.path.join(path, f)) for f in tqdm(df.filename_hr)]
             data = np.array([signal for signal, meta in data])
-            pickle.dump(data, open(path+'raw500.npy', 'wb'), protocol=4)
+            pickle.dump(data, open(fullpath, 'wb'), protocol=4)
     return data
 
 def compute_label_aggregations(df, folder, ctype):
 
     df['scp_codes_len'] = df.scp_codes.apply(lambda x: len(x))
 
-    aggregation_df = pd.read_csv(folder+'scp_statements.csv', index_col=0)
+    aggregation_df = pd.read_csv(os.path.join(folder, 'scp_statements.csv'), index_col=0)
 
     if ctype in ['diagnostic', 'subdiagnostic', 'superdiagnostic']:
 
@@ -335,16 +341,16 @@ def apply_standardizer(X, ss):
 
 # DOCUMENTATION STUFF
 
-def generate_ptbxl_summary_table(selection=None, folder='../output/'):
-
-    exps = ['exp0', 'exp1', 'exp1.1', 'exp1.1.1', 'exp2', 'exp3']
+def generate_ptbxl_summary_table(exps, selection=None, folder='../output/'):
+    #exps = ['exp0', 'exp1', 'exp1.1', 'exp1.1.1', 'exp2', 'exp3']
     metric1 = 'macro_auc'
 
     # get models
     models = {}
     for i, exp in enumerate(exps):
         if selection is None:
-            exp_models = [m.split('/')[-1] for m in glob.glob(folder+str(exp)+'/models/*')]
+            #exp_models = [m for m in glob.glob(os.path.join(folder, exp, 'models'))] # m.split('/')[-1] '/models/*'
+            exp_models = os.listdir(os.path.join(folder, exp, 'models'))
         else:
             exp_models = selection
         if i == 0:
@@ -352,37 +358,38 @@ def generate_ptbxl_summary_table(selection=None, folder='../output/'):
         else:
             models = models.union(set(exp_models))
 
-    results_dic = {'Method':[], 
-                'exp0_AUC':[], 
-                'exp1_AUC':[], 
-                'exp1.1_AUC':[], 
-                'exp1.1.1_AUC':[], 
-                'exp2_AUC':[],
-                'exp3_AUC':[]
+    results_dic = {'Method':[]#, 
+                #'exp0_AUC':[], 
+                #'exp1_AUC':[], 
+                #'exp1.1_AUC':[], 
+                #'exp1.1.1_AUC':[], 
+                #'exp2_AUC':[],
+                #'exp3_AUC':[]
                 }
+    for exp in exps:
+        results_dic[exp+'_AUC'] = []
 
-    for m in models:
-        results_dic['Method'].append(m)
+    for model in models:
+        results_dic['Method'].append(model)
         
-        for e in exps:
-            
+        for exp in exps:
             try:
-                me_res = pd.read_csv(folder+str(e)+'/models/'+str(m)+'/results/te_results.csv', index_col=0)
+                me_res = pd.read_csv(os.path.join(folder, exp, 'models', model, 'results', 'te_results.csv'), index_col=0)
     
                 mean1 = me_res.loc['point'][metric1]
                 unc1 = max(me_res.loc['upper'][metric1]-me_res.loc['point'][metric1], me_res.loc['point'][metric1]-me_res.loc['lower'][metric1])
 
-                results_dic[e+'_AUC'].append("%.3f(%.2d)" %(np.round(mean1,3), int(unc1*1000)))
+                results_dic[exp+'_AUC'].append("%.3f(%.2d)" %(np.round(mean1,3), int(unc1*1000)))
 
             except FileNotFoundError:
-                results_dic[e+'_AUC'].append("--")
+                results_dic[exp+'_AUC'].append("--")
             
             
     df = pd.DataFrame(results_dic)
     df_index = df[df.Method.isin(['naive', 'ensemble'])]
     df_rest = df[~df.Method.isin(['naive', 'ensemble'])]
     df = pd.concat([df_rest, df_index])
-    df.to_csv(folder+'results_ptbxl.csv')
+    df.to_csv(os.path.join(folder, 'results_ptbxl.csv'))
 
     titles = [
         '### 1. PTB-XL: all statements',
@@ -405,11 +412,12 @@ def generate_ptbxl_summary_table(selection=None, folder='../output/'):
             md_source += '| ' + row[0].replace('fastai_', '') + ' | ' + row[1] + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
     print(md_source)
 
-def ICBEBE_table(selection=None, folder='../output/'):
+def ICBEBE_table(exp, selection=None, folder='../output/'):
     cols = ['macro_auc', 'F_beta_macro', 'G_beta_macro']
 
     if selection is None:
-        models = [m.split('/')[-1].split('_pretrained')[0] for m in glob.glob(folder+'exp_ICBEB/models/*')]
+        #models = [m.split('_pretrained')[0] for m in glob.glob(os.path.join(folder, exp, 'models'))] # m.split('/')[-1].split('_pretrained')[0] '/models/*'
+        models = os.listdir(os.path.join(folder, exp, 'models'))
     else:
         models = [] 
         for s in selection:
@@ -418,17 +426,17 @@ def ICBEBE_table(selection=None, folder='../output/'):
 
     data = []
     for model in models:
-        me_res = pd.read_csv(folder+'exp_ICBEB/models/'+model+'/results/te_results.csv', index_col=0)
+        me_res = pd.read_csv(os.path.join(folder, exp, 'models', model, 'results', 'te_results.csv'), index_col=0)
         mcol=[]
         for col in cols:
-            mean = me_res.ix['point'][col]
-            unc = max(me_res.ix['upper'][col]-me_res.ix['point'][col], me_res.ix['point'][col]-me_res.ix['lower'][col])
+            mean = me_res.loc['point'][col]
+            unc = max(me_res.loc['upper'][col]-me_res.loc['point'][col], me_res.loc['point'][col]-me_res.loc['lower'][col])
             mcol.append("%.3f(%.2d)" %(np.round(mean,3), int(unc*1000)))
         data.append(mcol)
     data = np.array(data)
 
     df = pd.DataFrame(data, columns=cols, index=models)
-    df.to_csv(folder+'results_icbeb.csv')
+    df.to_csv(os.path.join(folder, 'results_icbeb.csv'))
 
     df_rest = df[~df.index.isin(['naive', 'ensemble'])]
     df_rest = df_rest.sort_values('macro_auc', ascending=False)

@@ -11,7 +11,7 @@ class SCP_Experiment():
         Experiment on SCP-ECG statements. All experiments based on SCP are performed and evaluated the same way.
     '''
 
-    def __init__(self, experiment_name, task, datafolder, outputfolder, models, sampling_frequency=100, min_samples=0, train_fold=8, val_fold=9, test_fold=10, folds_type='strat'):
+    def __init__(self, data_name, experiment_name, task, datafolder, outputfolder, models, sampling_frequency=100, min_samples=0, train_fold=8, val_fold=9, test_fold=10, folds_type='strat', mode = 'predict'):
         self.models = models
         self.min_samples = min_samples
         self.task = task
@@ -23,20 +23,23 @@ class SCP_Experiment():
         self.outputfolder = outputfolder
         self.datafolder = datafolder
         self.sampling_frequency = sampling_frequency
+        self.data_name = data_name
+        self.mode = mode
 
         # create folder structure if needed
-        if not os.path.exists(self.outputfolder+self.experiment_name):
-            os.makedirs(self.outputfolder+self.experiment_name)
-            if not os.path.exists(self.outputfolder+self.experiment_name+'/results/'):
-                os.makedirs(self.outputfolder+self.experiment_name+'/results/')
-            if not os.path.exists(outputfolder+self.experiment_name+'/models/'):
-                os.makedirs(self.outputfolder+self.experiment_name+'/models/')
-            if not os.path.exists(outputfolder+self.experiment_name+'/data/'):
-                os.makedirs(self.outputfolder+self.experiment_name+'/data/')
+        exp_folder = os.path.join(self.outputfolder, self.experiment_name)
+        if not os.path.exists(exp_folder):
+            os.makedirs(exp_folder)
+        if not os.path.exists(os.path.join(exp_folder, 'results')):
+            os.makedirs(os.path.join(exp_folder, 'results'))
+        if not os.path.exists(os.path.join(exp_folder, 'models')):
+            os.makedirs(os.path.join(exp_folder, 'models'))
+        if not os.path.exists(os.path.join(exp_folder, 'data')):
+            os.makedirs(os.path.join(exp_folder, 'data'))
 
     def prepare(self):
-        # Load PTB-XL data
-        self.data, self.raw_labels = utils.load_dataset(self.datafolder, self.sampling_frequency)
+        # Load data
+        self.data, self.raw_labels = utils.load_dataset(self.data_name, self.datafolder, self.sampling_frequency)
 
         # Preprocess label data
         self.labels = utils.compute_label_aggregations(self.raw_labels, self.datafolder, self.task)
@@ -93,13 +96,25 @@ class SCP_Experiment():
                 os.makedirs(mpath+'results/')
 
             n_classes = self.Y.shape[1]
+
+            if self.mode == 'finetune':
+                pretrained = True
+                pretrainedfolder = mpath
+                n_classes_pretrained = n_classes
+            else:
+                pretrained = False
+                pretrainedfolder = None
+                n_classes_pretrained=None
+
             # load respective model
             if modeltype == 'WAVELET':
                 from models.wavelet import WaveletModel
                 model = WaveletModel(modelname, n_classes, self.sampling_frequency, mpath, self.input_shape, **modelparams)
             elif modeltype == "fastai_model":
                 from models.fastai_model import fastai_model
-                model = fastai_model(modelname, n_classes, self.sampling_frequency, mpath, self.input_shape, **modelparams)
+                modelparams['epochs'] = 5
+                modelparams['epochs_finetuning'] = 5
+                model = fastai_model(modelname, n_classes, self.sampling_frequency, mpath, self.input_shape, pretrained, pretrainedfolder = pretrainedfolder, n_classes_pretrained = n_classes_pretrained, **modelparams)
             elif modeltype == "YOUR_MODEL_TYPE":
                 # YOUR MODEL GOES HERE!
                 from models.your_model import YourModel
@@ -109,11 +124,14 @@ class SCP_Experiment():
                 break
 
             # fit model
-            model.fit(self.X_train, self.y_train, self.X_val, self.y_val)
+            if self.mode != 'predict':
+                model.fit(self.X_train, self.y_train, self.X_val, self.y_val)
+
             # predict and dump
-            model.predict(self.X_train).dump(mpath+'y_train_pred.npy')
-            model.predict(self.X_val).dump(mpath+'y_val_pred.npy')
-            model.predict(self.X_test).dump(mpath+'y_test_pred.npy')
+            # print(self.X_train(732))
+            model.predict(self.X_train, 'train').dump(mpath+'y_train_pred.npy')
+            model.predict(self.X_val, 'val').dump(mpath+'y_val_pred.npy')
+            model.predict(self.X_test, 'test').dump(mpath+'y_test_pred.npy')
 
         modelname = 'ensemble'
         # create ensemble predictions via simple mean across model predictions (except naive predictions)
@@ -149,6 +167,10 @@ class SCP_Experiment():
                 #train_samples = np.array(utils.get_appropriate_bootstrap_samples(y_train, n_bootstraping_samples))
                 test_samples = np.array(utils.get_appropriate_bootstrap_samples(y_test, n_bootstraping_samples))
                 #val_samples = np.array(utils.get_appropriate_bootstrap_samples(y_val, n_bootstraping_samples))
+                # store samples for future evaluations
+                #train_samples.dump(self.outputfolder+self.experiment_name+'/train_bootstrap_ids.npy')
+                test_samples.dump(self.outputfolder+self.experiment_name+'/test_bootstrap_ids.npy')
+                #val_samples.dump(self.outputfolder+self.experiment_name+'/val_bootstrap_ids.npy')
             else:
                 test_samples = np.load(self.outputfolder+self.experiment_name+'/test_bootstrap_ids.npy', allow_pickle=True)
         else:
@@ -156,13 +178,10 @@ class SCP_Experiment():
             test_samples = np.array([range(len(y_test))])
             #val_samples = np.array([range(len(y_val))])
 
-        # store samples for future evaluations
-        #train_samples.dump(self.outputfolder+self.experiment_name+'/train_bootstrap_ids.npy')
-        test_samples.dump(self.outputfolder+self.experiment_name+'/test_bootstrap_ids.npy')
-        #val_samples.dump(self.outputfolder+self.experiment_name+'/val_bootstrap_ids.npy')
-
         # iterate over all models fitted so far
         for m in sorted(os.listdir(self.outputfolder+self.experiment_name+'/models')):
+            #if m == 'ensemble':
+            #    continue
             print(m)
             mpath = self.outputfolder+self.experiment_name+'/models/'+m+'/'
             rpath = self.outputfolder+self.experiment_name+'/models/'+m+'/results/'
@@ -172,7 +191,7 @@ class SCP_Experiment():
             #y_val_pred = np.load(mpath+'y_val_pred.npy', allow_pickle=True)
             y_test_pred = np.load(mpath+'y_test_pred.npy', allow_pickle=True)
 
-            if self.experiment_name == 'exp_ICBEB':
+            if self.data_name == 'ICBEB':
                 # compute classwise thresholds such that recall-focused Gbeta is optimized
                 thresholds = utils.find_optimal_cutoff_thresholds_for_Gbeta(y_train, y_train_pred)
             else:

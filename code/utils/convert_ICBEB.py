@@ -7,9 +7,10 @@ from scipy.ndimage import zoom
 from scipy.io import loadmat
 from stratisfy import stratisfy_df
 
-output_folder = 'data/ICBEB/'
-output_datafolder_100 = output_folder+ '/records100/'
-output_datafolder_500 = output_folder+ '/records500/'
+input_folder = 'C:\Documents\Data\ECG\CPSC2018'
+output_folder = os.path.join(input_folder, 'ICBEB')
+output_datafolder_100 = os.path.join(output_folder, 'records100')
+output_datafolder_500 = os.path.join(output_folder, 'records500')
 if not os.path.exists(output_folder):
     os.mkdir(output_folder)
 if not os.path.exists(output_datafolder_100):
@@ -27,7 +28,7 @@ def store_as_wfdb(signame, data, sigfolder, fs):
                 fmt = ['16']*len(channel_itos), 
                 write_dir=sigfolder)  
 
-df_reference = pd.read_csv('tmp_data/REFERENCE.csv')
+df_reference = pd.read_csv(os.path.join(input_folder, 'REFERENCE.csv'))
 
 label_dict = {1:'NORM', 2:'AFIB', 3:'1AVB', 4:'CLBBB', 5:'CRBBB', 6:'PAC', 7:'VPC', 8:'STD_', 9:'STE_'}
 
@@ -35,12 +36,13 @@ data = {'ecg_id':[], 'filename':[], 'validation':[], 'age':[], 'sex':[], 'scp_co
 
 ecg_counter = 0
 for folder in ['TrainingSet1', 'TrainingSet2', 'TrainingSet3']:
-    filenames = os.listdir('tmp_data/'+folder)
+    current_folder = os.path.join(input_folder, folder)
+    filenames = os.listdir(current_folder)
     for filename in tqdm(filenames):
         if filename.split('.')[1] == 'mat':
             ecg_counter += 1
             name = filename.split('.')[0]
-            sex, age, sig = loadmat('tmp_data/'+folder+'/'+filename)['ECG'][0][0]
+            sex, age, sig = loadmat(os.path.join(current_folder, filename))['ECG'][0][0]
             data['ecg_id'].append(ecg_counter)
             data['filename'].append(name)
             data['validation'].append(False)
@@ -56,4 +58,4 @@ for folder in ['TrainingSet1', 'TrainingSet2', 'TrainingSet3']:
 df = pd.DataFrame(data)
 df['patient_id'] = df.ecg_id
 df = stratisfy_df(df, 'strat_fold')
-df.to_csv(output_folder+'icbeb_database.csv')
+df.to_csv(os.path.join(output_folder, 'icbeb_database.csv'))
