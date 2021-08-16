@@ -48,7 +48,9 @@ def stratisfy_df(df, new_col_name, n_folds=10, nr_clean_folds=0):
     df[new_col_name] = np.zeros(len(df)).astype(int)
     for fold_i, fold_ids in tqdm(enumerate(stratified_data_ids)):
         ipat_ids = [pat_ids[pid] for pid in fold_ids]
-        df[new_col_name][df.patient_id.isin(ipat_ids)] = fold_i + 1
+        #df[new_col_name][df.patient_id.isin(ipat_ids)] = fold_i + 1
+        rows = [i for i in range(len(df.patient_id)) if df.patient_id[i] in ipat_ids] # формирование индексов, для которых элемент есть в ipat_ids
+        df.loc[rows, new_col_name] = fold_i + 1
 
     return df
 

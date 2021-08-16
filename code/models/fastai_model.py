@@ -117,7 +117,7 @@ def lr_find_plot(learner, path, filename="lr_find", n_skip=10, n_skip_end=2):
     '''saves lr_find plot as file (normally only jupyter output)
     on the x-axis is lrs[-1]
     '''
-    lr_find(learner, num_it = 5)
+    lr_find(learner) #, num_it = 5
 
     backend_old= matplotlib.get_backend()
     plt.switch_backend('agg')
@@ -225,7 +225,14 @@ class fastai_model(ClassificationModel):
             #    layer_groups=learn.model.get_layer_groups()
             #    learn.split(layer_groups)
             learn.model.apply(weight_init)
-            
+
+            #вывод структуры модели и её параметров модели в текстовый файл
+            with open(os.path.join(self.outputfolder, 'model.txt'), 'w') as f:
+                print(learn.model, file = f)
+            with open(os.path.join(self.outputfolder, 'init_pars.txt'), 'w') as f:
+                for name, param in learn.model.named_parameters():
+                    print('layer inds.par:', name, '\n', param, '\n', file = f)
+
             #initialization for regression output
             if(self.loss=="nll_regression" or self.loss=="mse"):
                 output_layer_new = learn.model.get_output_layer()

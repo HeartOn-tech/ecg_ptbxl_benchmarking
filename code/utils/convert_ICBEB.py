@@ -7,7 +7,7 @@ from scipy.ndimage import zoom
 from scipy.io import loadmat
 from stratisfy import stratisfy_df
 
-input_folder = 'C:\Documents\Data\ECG\CPSC2018'
+input_folder = 'D:\Temp\ECG\CPSC2018'
 output_folder = os.path.join(input_folder, 'ICBEB')
 output_datafolder_100 = os.path.join(output_folder, 'records100')
 output_datafolder_500 = os.path.join(output_folder, 'records500')
@@ -51,9 +51,9 @@ for folder in ['TrainingSet1', 'TrainingSet2', 'TrainingSet3']:
             labels = df_reference[df_reference.Recording == name][['First_label' ,'Second_label' ,'Third_label']].values.flatten()
             labels = labels[~np.isnan(labels)].astype(int)
             data['scp_codes'].append({label_dict[key]:100 for key in labels})
-            store_as_wfdb(str(ecg_counter), sig.T, output_datafolder_500, 500)
-            down_sig = np.array([zoom(channel, .2) for channel in sig])
-            store_as_wfdb(str(ecg_counter), down_sig.T, output_datafolder_100, 100)
+            #store_as_wfdb(str(ecg_counter), sig.T, output_datafolder_500, 500)
+            #down_sig = np.array([zoom(channel, .2) for channel in sig])
+            #store_as_wfdb(str(ecg_counter), down_sig.T, output_datafolder_100, 100)
 
 df = pd.DataFrame(data)
 df['patient_id'] = df.ecg_id

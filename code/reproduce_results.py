@@ -11,7 +11,7 @@ def main(record_base_path):
     datafolder_ptbxl = os.path.join(record_base_path, 'ptbxl')  # '../data/ptbxl/'
     datafolder_icbeb = os.path.join(record_base_path, 'ICBEB')  # '../data/ICBEB/'
     outputfolder = '../output/'
-    mode = 'predict' # mode: 'predict' - только выполнение предсказания, иначе выполнение обучения - fit(), 'finetune' - дообучение моделей (только fastai-модели)
+    mode = 'fit' # 'predict' # mode: 'predict' - только выполнение предсказания, 'fit' - выполнение обучения, 'finetune' - дообучение моделей (только fastai-модели)
 
     models = [
         conf_fastai_xresnet1d101,
@@ -47,12 +47,12 @@ def main(record_base_path):
             e.evaluate()
 
         #generate greate summary table
-        utils.generate_ptbxl_summary_table(exps)
+        utils.generate_ptbxl_summary_table(exps, outputfolder)
 
     ##########################################
     # EXPERIMENT BASED ICBEB DATA
     ##########################################
-    use_ICBEB = True
+    use_ICBEB = False
     if use_ICBEB:
         data_name = 'ICBEB'
         exp_name = 'exp_ICBEB'
@@ -64,7 +64,7 @@ def main(record_base_path):
         e.evaluate()
 
         # generate greate summary table
-        utils.ICBEBE_table(exp_name)
+        utils.ICBEBE_table(exp_name, outputfolder)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

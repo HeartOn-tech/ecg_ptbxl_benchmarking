@@ -112,8 +112,8 @@ class SCP_Experiment():
                 model = WaveletModel(modelname, n_classes, self.sampling_frequency, mpath, self.input_shape, **modelparams)
             elif modeltype == "fastai_model":
                 from models.fastai_model import fastai_model
-                modelparams['epochs'] = 5
-                modelparams['epochs_finetuning'] = 5
+                #modelparams['epochs'] = 5
+                #modelparams['epochs_finetuning'] = 5
                 model = fastai_model(modelname, n_classes, self.sampling_frequency, mpath, self.input_shape, pretrained, pretrainedfolder = pretrainedfolder, n_classes_pretrained = n_classes_pretrained, **modelparams)
             elif modeltype == "YOUR_MODEL_TYPE":
                 # YOUR MODEL GOES HERE!
@@ -124,11 +124,10 @@ class SCP_Experiment():
                 break
 
             # fit model
-            if self.mode != 'predict':
+            if self.mode in ['fit', 'finetune']:
                 model.fit(self.X_train, self.y_train, self.X_val, self.y_val)
 
             # predict and dump
-            # print(self.X_train(732))
             model.predict(self.X_train, 'train').dump(mpath+'y_train_pred.npy')
             model.predict(self.X_val, 'val').dump(mpath+'y_val_pred.npy')
             model.predict(self.X_test, 'test').dump(mpath+'y_test_pred.npy')
@@ -158,7 +157,7 @@ class SCP_Experiment():
 
         # get labels
         y_train = np.load(self.outputfolder+self.experiment_name+'/data/y_train.npy', allow_pickle=True)
-        #y_val = np.load(self.outputfolder+self.experiment_name+'/data/y_val.npy', allow_pickle=True)
+        y_val = np.load(self.outputfolder+self.experiment_name+'/data/y_val.npy', allow_pickle=True)
         y_test = np.load(self.outputfolder+self.experiment_name+'/data/y_test.npy', allow_pickle=True)
 
         # if bootstrapping then generate appropriate samples for each
