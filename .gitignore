@@ -13,3 +13,13 @@ __pycache__
 **/*.fdb_latexmk
 
 .ipynb_checkpoints
+
+# Output catalogs
+/output*/
+
+# Project and solution files
+*.pyproj
+*.sln
+
+# Temporary vs files
+/.vs
