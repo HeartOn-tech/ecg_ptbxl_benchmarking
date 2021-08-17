@@ -150,8 +150,8 @@ class SCP_Experiment():
                 ensemble_test.append(np.load(mpath+'y_test_pred.npy', allow_pickle=True))
         # dump mean predictions
         np.array(ensemble_train).mean(axis=0).dump(ensemblepath + 'y_train_pred.npy')
-        np.array(ensemble_test).mean(axis=0).dump(ensemblepath + 'y_test_pred.npy')
         np.array(ensemble_val).mean(axis=0).dump(ensemblepath + 'y_val_pred.npy')
+        np.array(ensemble_test).mean(axis=0).dump(ensemblepath + 'y_test_pred.npy')
 
     def evaluate(self, n_bootstraping_samples=100, n_jobs=20, bootstrap_eval=False, dumped_bootstraps=True):
 

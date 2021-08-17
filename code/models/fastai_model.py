@@ -226,9 +226,10 @@ class fastai_model(ClassificationModel):
             #    learn.split(layer_groups)
             learn.model.apply(weight_init)
 
-            #вывод структуры модели и её параметров модели в текстовый файл
+            #вывод структуры модели и её параметров в текстовый файл
             with open(os.path.join(self.outputfolder, 'model.txt'), 'w') as f:
                 print(learn.model, file = f)
+
             with open(os.path.join(self.outputfolder, 'init_pars.txt'), 'w') as f:
                 for name, param in learn.model.named_parameters():
                     print('layer inds.par:', name, '\n', param, '\n', file = f)

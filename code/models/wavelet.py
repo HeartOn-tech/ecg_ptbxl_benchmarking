@@ -103,9 +103,20 @@ class WaveletModel(ClassificationModel):
         self.epochs=30
 
     def fit(self, X_train, y_train, X_val, y_val):
-        XF_train = get_ecg_features(X_train, False)
-        XF_val = get_ecg_features(X_val, False)
-        
+        XF_train_path = self.outputfolder + 'XF_train.npy'
+        if not os.path.exists(XF_train_path):
+            XF_train = get_ecg_features(X_train, False)
+            XF_train.dump(XF_train_path)
+        else:
+            XF_train = np.load(XF_train_path, allow_pickle=True)
+
+        XF_val_path = self.outputfolder + 'XF_val.npy'
+        if not os.path.exists(XF_val_path):
+            XF_val = get_ecg_features(X_val, False)
+            XF_val.dump(XF_val_path)
+        else:
+            XF_val = np.load(XF_val_path, allow_pickle=True)
+
         if self.classifier == 'LR':
             if self.n_classes > 1:
                 clf = OneVsRestClassifier(LogisticRegression(C=self.regularizer_C, solver='lbfgs', max_iter=1000, n_jobs=-1))
@@ -129,7 +140,17 @@ class WaveletModel(ClassificationModel):
             x = Dropout(self.dropout)(x)
             y = Dense(self.n_classes, activation=self.final_activation)(x)
             self.model = Model(input_x, y)
-            
+
+            #вывод структуры модели и её параметров в текстовый файл
+            from contextlib import redirect_stdout
+            with open(os.path.join(self.outputfolder, 'model.txt'), 'w') as f:
+                with redirect_stdout(f):
+                    self.model.summary()
+
+            with open(os.path.join(self.outputfolder, 'init_pars.txt'), 'w') as f:
+                for param in self.model.trainable_variables:
+                    print('layer type/par:', param, '\n', file = f)
+
             self.model.compile(optimizer='adamax', loss='binary_crossentropy')#, metrics=[keras_macro_auroc])
             # monitor validation error
             mc_loss = ModelCheckpoint(self.outputfolder +'best_loss_model.h5', monitor='val_loss', mode='min', verbose=1, save_best_only=True)
