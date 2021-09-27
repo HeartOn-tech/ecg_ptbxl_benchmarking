@@ -10,8 +10,11 @@ from configs.wavelet_configs import *
 def main(record_base_path):
     datafolder_ptbxl = os.path.join(record_base_path, 'ptbxl')  # '../data/ptbxl/'
     datafolder_icbeb = os.path.join(record_base_path, 'ICBEB')  # '../data/ICBEB/'
-    outputfolder = '../output/'
-    mode = 'fit' # 'predict' # mode: 'predict' - только выполнение предсказания, 'fit' - выполнение обучения, 'finetune' - дообучение моделей (только fastai-модели)
+    outputfolder = '../output_drozd_2/'
+    mode = 'eval' # 'eval' - только расчет оценок классификации по моделям,
+                 # 'predict' - только выполнение предсказания,
+                 # 'fit' - выполнение обучения,
+                 # 'finetune' - дообучение моделей (только fastai-модели)
 
     models = [
         conf_fastai_xresnet1d101,
@@ -30,24 +33,26 @@ def main(record_base_path):
     if use_PTBXL:
         data_name = 'ptbxl'
         experiments = [
-            ('exp0', 'all'),
-            ('exp1', 'diagnostic'),
-            ('exp1.1', 'subdiagnostic'),
-            ('exp1.1.1', 'superdiagnostic'),
-            ('exp2', 'form'),
-            ('exp3', 'rhythm')
+            ('exp0', 'all')#,
+            #('exp1', 'diagnostic'),
+            #('exp1.1', 'subdiagnostic'),
+            #('exp1.1.1', 'superdiagnostic'),
+            #('exp2', 'form'),
+            #('exp3', 'rhythm')
            ]
         exps = []
 
         for exp_name, task in experiments:
             exps.append(exp_name)
             e = SCP_Experiment(data_name, exp_name, task, datafolder_ptbxl, outputfolder, models, mode = mode)
+
             e.prepare()
-            e.perform()
+            if mode != 'eval':
+                e.perform()
             e.evaluate()
 
         #generate greate summary table
-        utils.generate_ptbxl_summary_table(exps, outputfolder)
+        #utils.generate_ptbxl_summary_table(exps, outputfolder)
 
     ##########################################
     # EXPERIMENT BASED ICBEB DATA
@@ -57,14 +62,15 @@ def main(record_base_path):
         data_name = 'ICBEB'
         exp_name = 'exp_ICBEB'
         task = 'all'
-
         e = SCP_Experiment(data_name, exp_name, task, datafolder_icbeb, outputfolder, models, mode = mode)
+
         e.prepare()
-        e.perform()
+        if mode != 'eval':
+            e.perform()
         e.evaluate()
 
         # generate greate summary table
-        utils.ICBEBE_table(exp_name, outputfolder)
+        #utils.ICBEBE_table(exp_name, outputfolder)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

@@ -17,18 +17,23 @@ from matplotlib.axes._axes import _log as matplotlib_axes_logger
 import warnings
 
 # EVALUATION STUFF
-def generate_results(idxs, y_true, y_pred, thresholds):
-    return evaluate_experiment(y_true[idxs], y_pred[idxs], thresholds)
+def generate_results(idxs, y_true, y_pred, thresholds_Fbeta = None, thresholds_Gbeta = None, beta1 = 2, beta2 = 2):
+    return evaluate_experiment(y_true[idxs], y_pred[idxs], thresholds_Fbeta, thresholds_Gbeta, beta1, beta2)
 
-def evaluate_experiment(y_true, y_pred, thresholds=None):
+def evaluate_experiment(y_true, y_pred, thresholds_Fbeta, thresholds_Gbeta, beta1, beta2):
     results = {}
 
-    if not thresholds is None:
-        # binary predictions
-        y_pred_binary = apply_thresholds(y_pred, thresholds)
-        # PhysioNet/CinC Challenges metrics
-        challenge_scores = challenge_metrics(y_true, y_pred_binary, beta1=2, beta2=2)
+    # PhysioNet/CinC Challenges metrics
+    if not thresholds_Fbeta is None:
+        # binary predictions for Fbeta
+        y_pred_binary = apply_thresholds(y_pred, thresholds_Fbeta)
+        challenge_scores = challenge_metrics(y_true, y_pred_binary, beta1, beta2)
         results['F_beta_macro'] = challenge_scores['F_beta_macro']
+
+    if not thresholds_Gbeta is None:
+        # binary predictions for Gbeta
+        y_pred_binary = apply_thresholds(y_pred, thresholds_Gbeta)
+        challenge_scores = challenge_metrics(y_true, y_pred_binary, beta1, beta2)
         results['G_beta_macro'] = challenge_scores['G_beta_macro']
 
     # label based metric
@@ -37,7 +42,7 @@ def evaluate_experiment(y_true, y_pred, thresholds=None):
     df_result = pd.DataFrame(results, index=[0])
     return df_result
 
-def challenge_metrics(y_true, y_pred, beta1=2, beta2=2, class_weights=None, single=False):
+def challenge_metrics(y_true, y_pred, beta1 = 2, beta2 = 2, class_weights = None, single = False):
     f_beta = 0
     g_beta = 0
     if single: # if evaluating single class in case of threshold-optimization
@@ -75,27 +80,37 @@ def get_appropriate_bootstrap_samples(y_true, n_bootstraping_samples):
                 break
     return samples
 
-def find_optimal_cutoff_threshold(target, predicted):
-    """ 
-    Find the optimal probability cutoff point for a classification model related to event rate
-    """
-    fpr, tpr, threshold = roc_curve(target, predicted)
-    optimal_idx = np.argmax(tpr - fpr)
-    optimal_threshold = threshold[optimal_idx]
-    return optimal_threshold
+#def find_optimal_cutoff_threshold(target, predicted):
+#    """ 
+#    Find the optimal probability cutoff point for a classification model related to event rate
+#    """
+#    fpr, tpr, threshold = roc_curve(target, predicted)
+#    optimal_idx = np.argmax(tpr - fpr)
+#    optimal_threshold = threshold[optimal_idx]
+#    return optimal_threshold
 
-def find_optimal_cutoff_thresholds(y_true, y_pred):
-	return [find_optimal_cutoff_threshold(y_true[:,i], y_pred[:,i]) for i in range(y_true.shape[1])]
+#def find_optimal_cutoff_thresholds(y_true, y_pred):
+#	return [find_optimal_cutoff_threshold(y_true[:,i], y_pred[:,i]) for i in range(y_true.shape[1])]
 
-def find_optimal_cutoff_threshold_for_Gbeta(target, predicted, n_thresholds=100):
-    thresholds = np.linspace(0.00,1,n_thresholds)
-    scores = [challenge_metrics(target, predicted>t, single=True)['G_beta_macro'] for t in thresholds]
+def find_optimal_cutoff_threshold_for_Fbeta(target, predicted, beta1, n_thresholds = 10): # 100
+    thresholds = np.linspace(0.00, 1, n_thresholds)
+    scores = [challenge_metrics(target, predicted > t, beta1, single = True)['F_beta_macro'] for t in thresholds]
     optimal_idx = np.argmax(scores)
     return thresholds[optimal_idx]
 
-def find_optimal_cutoff_thresholds_for_Gbeta(y_true, y_pred):
+def find_optimal_cutoff_thresholds_for_Fbeta(y_true, y_pred, beta1 = 2):
+    print("optimize thresholds with respect to F_beta")
+    return [find_optimal_cutoff_threshold_for_Fbeta(y_true[:,k][:,np.newaxis], y_pred[:,k][:,np.newaxis], beta1) for k in tqdm(range(y_true.shape[1]))]
+
+def find_optimal_cutoff_threshold_for_Gbeta(target, predicted, beta2, n_thresholds = 10): # 100
+    thresholds = np.linspace(0.00, 1, n_thresholds)
+    scores = [challenge_metrics(target, predicted > t, beta2, single = True)['G_beta_macro'] for t in thresholds]
+    optimal_idx = np.argmax(scores)
+    return thresholds[optimal_idx]
+
+def find_optimal_cutoff_thresholds_for_Gbeta(y_true, y_pred, beta2 = 2):
     print("optimize thresholds with respect to G_beta")
-    return [find_optimal_cutoff_threshold_for_Gbeta(y_true[:,k][:,np.newaxis], y_pred[:,k][:,np.newaxis]) for k in tqdm(range(y_true.shape[1]))]
+    return [find_optimal_cutoff_threshold_for_Gbeta(y_true[:,k][:,np.newaxis], y_pred[:,k][:,np.newaxis], beta2) for k in tqdm(range(y_true.shape[1]))]
 
 def apply_thresholds(preds, thresholds):
 	"""
