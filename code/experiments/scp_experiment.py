@@ -221,7 +221,7 @@ class SCP_Experiment():
 
                     df_result = pd.DataFrame(
                         np.array([
-                            df_point.values, # te_df_point.mean().values
+                            df_point.values[0],
                             df.mean().values,
                             df.quantile(0.05).values,
                             df.quantile(0.95).values]), 
@@ -229,7 +229,7 @@ class SCP_Experiment():
                         index = ['point', 'mean', 'lower', 'upper'])
                 else:
                     df_result = pd.DataFrame(
-                        np.array([df_point.values]), # te_df_point.mean().values
+                        df_point.values,
                         columns = df_point.columns,
                         index = ['point'])
 

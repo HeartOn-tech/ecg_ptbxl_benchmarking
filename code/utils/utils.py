@@ -92,7 +92,7 @@ def get_appropriate_bootstrap_samples(y_true, n_bootstraping_samples):
 #def find_optimal_cutoff_thresholds(y_true, y_pred):
 #	return [find_optimal_cutoff_threshold(y_true[:,i], y_pred[:,i]) for i in range(y_true.shape[1])]
 
-def find_optimal_cutoff_threshold_for_Fbeta(target, predicted, beta1, n_thresholds = 10): # 100
+def find_optimal_cutoff_threshold_for_Fbeta(target, predicted, beta1, n_thresholds = 5): # 100
     thresholds = np.linspace(0.00, 1, n_thresholds)
     scores = [challenge_metrics(target, predicted > t, beta1, single = True)['F_beta_macro'] for t in thresholds]
     optimal_idx = np.argmax(scores)
@@ -102,7 +102,7 @@ def find_optimal_cutoff_thresholds_for_Fbeta(y_true, y_pred, beta1 = 2):
     print("optimize thresholds with respect to F_beta")
     return [find_optimal_cutoff_threshold_for_Fbeta(y_true[:,k][:,np.newaxis], y_pred[:,k][:,np.newaxis], beta1) for k in tqdm(range(y_true.shape[1]))]
 
-def find_optimal_cutoff_threshold_for_Gbeta(target, predicted, beta2, n_thresholds = 10): # 100
+def find_optimal_cutoff_threshold_for_Gbeta(target, predicted, beta2, n_thresholds = 5): # 100
     thresholds = np.linspace(0.00, 1, n_thresholds)
     scores = [challenge_metrics(target, predicted > t, beta2, single = True)['G_beta_macro'] for t in thresholds]
     optimal_idx = np.argmax(scores)
@@ -427,7 +427,7 @@ def generate_ptbxl_summary_table(exps, folder, selection=None):
             md_source += '| ' + row[0].replace('fastai_', '') + ' | ' + row[1] + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
     print(md_source)
 
-def ICBEBE_table(exp, folder, selection=None):
+def exp_table(exp, folder, selection = None): # ICBEBE_table()
     cols = ['macro_auc', 'F_beta_macro', 'G_beta_macro']
 
     if selection is None:
@@ -444,17 +444,21 @@ def ICBEBE_table(exp, folder, selection=None):
         me_res = pd.read_csv(os.path.join(folder, exp, 'models', model, 'results', 'te_results.csv'), index_col=0)
         mcol=[]
         for col in cols:
-            mean = me_res.loc['point'][col]
-            unc = max(me_res.loc['upper'][col]-me_res.loc['point'][col], me_res.loc['point'][col]-me_res.loc['lower'][col])
-            mcol.append("%.3f(%.2d)" %(np.round(mean,3), int(unc*1000)))
+            point = me_res.loc['point'][col]
+            if 'lower' in me_res:
+                #mean = me_res.loc['mean'][col]
+                unc = max(me_res.loc['upper'][col] - point, point - me_res.loc['lower'][col])
+                mcol.append("%.3f(%.2d)" %(np.round(point, 3), int(unc*1000)))
+            else:
+                mcol.append("%.3f" %(np.round(point, 3)))
         data.append(mcol)
     data = np.array(data)
 
-    df = pd.DataFrame(data, columns=cols, index=models)
+    df = pd.DataFrame(data, columns = cols, index = models)
     df.to_csv(os.path.join(folder, 'results_icbeb.csv'))
 
     df_rest = df[~df.index.isin(['naive', 'ensemble'])]
-    df_rest = df_rest.sort_values('macro_auc', ascending=False)
+    #df_rest = df_rest.sort_values('macro_auc', ascending=False)
     our_work = 'https://arxiv.org/abs/2004.13701'
     our_repo = 'https://github.com/helme/ecg_ptbxl_benchmarking/'
 
