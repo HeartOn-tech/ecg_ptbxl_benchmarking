@@ -355,115 +355,81 @@ def apply_standardizer(X, ss):
 
 
 # DOCUMENTATION STUFF
-
-def generate_ptbxl_summary_table(exps, folder, selection=None):
-    #exps = ['exp0', 'exp1', 'exp1.1', 'exp1.1.1', 'exp2', 'exp3']
-    metric1 = 'macro_auc'
-
-    # get models
-    models = {}
-    for i, exp in enumerate(exps):
-        if selection is None:
-            #exp_models = [m for m in glob.glob(os.path.join(folder, exp, 'models'))] # m.split('/')[-1] '/models/*'
-            exp_models = os.listdir(os.path.join(folder, exp, 'models'))
-        else:
-            exp_models = selection
-        if i == 0:
-            models = set(exp_models)
-        else:
-            models = models.union(set(exp_models))
-
-    results_dic = {'Method':[]#, 
-                #'exp0_AUC':[], 
-                #'exp1_AUC':[], 
-                #'exp1.1_AUC':[], 
-                #'exp1.1.1_AUC':[], 
-                #'exp2_AUC':[],
-                #'exp3_AUC':[]
-                }
-    for exp in exps:
-        results_dic[exp+'_AUC'] = []
-
-    for model in models:
-        results_dic['Method'].append(model)
-        
-        for exp in exps:
-            try:
-                me_res = pd.read_csv(os.path.join(folder, exp, 'models', model, 'results', 'te_results.csv'), index_col=0)
-    
-                mean1 = me_res.loc['point'][metric1]
-                unc1 = max(me_res.loc['upper'][metric1]-me_res.loc['point'][metric1], me_res.loc['point'][metric1]-me_res.loc['lower'][metric1])
-
-                results_dic[exp+'_AUC'].append("%.3f(%.2d)" %(np.round(mean1,3), int(unc1*1000)))
-
-            except FileNotFoundError:
-                results_dic[exp+'_AUC'].append("--")
-            
-            
-    df = pd.DataFrame(results_dic)
-    df_index = df[df.Method.isin(['naive', 'ensemble'])]
-    df_rest = df[~df.Method.isin(['naive', 'ensemble'])]
-    df = pd.concat([df_rest, df_index])
-    df.to_csv(os.path.join(folder, 'results_ptbxl.csv'))
-
-    titles = [
-        '### 1. PTB-XL: all statements',
-        '### 2. PTB-XL: diagnostic statements',
-        '### 3. PTB-XL: Diagnostic subclasses',
-        '### 4. PTB-XL: Diagnostic superclasses',
-        '### 5. PTB-XL: Form statements',
-        '### 6. PTB-XL: Rhythm statements'        
-    ]
-
-    # helper output function for markdown tables
-    our_work = 'https://arxiv.org/abs/2004.13701'
-    our_repo = 'https://github.com/helme/ecg_ptbxl_benchmarking/'
-    md_source = ''
-    for i, e in enumerate(exps):
-        md_source += '\n '+titles[i]+' \n \n'
-        md_source += '| Model | AUC &darr; | paper/source | code | \n'
-        md_source += '|---:|:---|:---|:---| \n'
-        for row in df_rest[['Method', e+'_AUC']].sort_values(e+'_AUC', ascending=False).values:
-            md_source += '| ' + row[0].replace('fastai_', '') + ' | ' + row[1] + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
-    print(md_source)
-
-def exp_table(exp, folder, selection = None): # ICBEBE_table()
+def exp_table(exp, folder, selection, data_type):
     cols = ['macro_auc', 'F_beta_macro', 'G_beta_macro']
 
     if selection is None:
         #models = [m.split('_pretrained')[0] for m in glob.glob(os.path.join(folder, exp, 'models'))] # m.split('/')[-1].split('_pretrained')[0] '/models/*'
-        models = os.listdir(os.path.join(outputfolder, exp, 'models'))
+        models = os.listdir(os.path.join(folder, exp, 'models'))
     else:
-        models = [] 
-        for s in selection:
-            #if s != 'Wavelet+NN':
-                models.append(s)
+        models = selection
+        #for s in selection:
+        #    models.append(s)
 
     data = []
     for model in models:
-        me_res = pd.read_csv(os.path.join(folder, exp, 'models', model, 'results', 'te_results.csv'), index_col=0)
-        mcol=[]
-        for col in cols:
-            point = me_res.loc['point'][col]
-            if 'lower' in me_res:
-                #mean = me_res.loc['mean'][col]
-                unc = max(me_res.loc['upper'][col] - point, point - me_res.loc['lower'][col])
-                mcol.append("%.3f(%.2d)" %(np.round(point, 3), int(unc*1000)))
-            else:
-                mcol.append("%.3f" %(np.round(point, 3)))
-        data.append(mcol)
-    data = np.array(data)
+        res_path = os.path.join(folder, exp, 'models', model, 'results', data_type + '_results.csv') # 'test_results.csv'
+        if os.path.isfile(res_path):
+            me_res = pd.read_csv(res_path, index_col=0)
+            mcol=[]
+            for col in cols:
+                if col in me_res.columns:
+                    point = me_res.loc['point'][col]
+                    if set(['upper', 'lower']).issubset(me_res.index):
+                        #mean = me_res.loc['mean'][col]
+                        unc = max(me_res.loc['upper'][col] - point, point - me_res.loc['lower'][col])
+                        mcol.append("%.3f(%.2d)" %(np.round(point, 3), int(unc*1000)))
+                    else:
+                        mcol.append("%.3f" %(np.round(point, 3)))
+            data.append(mcol)
 
-    df = pd.DataFrame(data, columns = cols, index = models)
-    df.to_csv(os.path.join(folder, 'results_icbeb.csv'))
+    data_array = np.array(data)
 
+    df = pd.DataFrame(data_array, columns = cols, index = models)
+    df_index = df[df.index.isin(['naive', 'ensemble'])]
     df_rest = df[~df.index.isin(['naive', 'ensemble'])]
+    df = pd.concat([df_rest, df_index])
+    return df
+
+def generate_ptbxl_summary_table(exps, folder, selection = None, data_type = 'test'):
+    #exps = ['exp0', 'exp1', 'exp1.1', 'exp1.1.1', 'exp2', 'exp3']
+    #metric1 = 'macro_auc'
+
+    dfs = [] # dataframes related to experiments
+    for exp in exps:
+        dfs.append(exp_table(exp, folder, selection, data_type))
+
+    df = pd.concat(dfs, keys = exps)
+    df.to_csv(os.path.join(folder, data_type + '_results_ptbxl.csv'))
+
+    # helper output function for markdown tables
+    print('PTB_XL results')
+    #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
     #df_rest = df_rest.sort_values('macro_auc', ascending=False)
+    df_rest = df
     our_work = 'https://arxiv.org/abs/2004.13701'
     our_repo = 'https://github.com/helme/ecg_ptbxl_benchmarking/'
-
     md_source = '| Model | AUC &darr; |  F_beta=2 | G_beta=2 | paper/source | code | \n'
     md_source += '|---:|:---|:---|:---|:---|:---| \n'
+    cols = [col for col in df_rest.columns if col]
+    for i, row in enumerate(df_rest[cols].values):
+        md_source += '| ' + df_rest.loc[exps[0]].index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2] + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
+    print(md_source)
+
+def ICBEBE_table(exp, folder, selection = None, data_type = 'test'):
+    df = exp_table(exp, folder, selection, data_type)
+    df.to_csv(os.path.join(folder, data_type + '_results_icbeb.csv'))
+
+    # helper output function for markdown tables
+    print('ICBEB results')
+    #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
+    #df_rest = df_rest.sort_values('macro_auc', ascending=False)
+    df_rest = df
+    our_work = 'https://arxiv.org/abs/2004.13701'
+    our_repo = 'https://github.com/helme/ecg_ptbxl_benchmarking/'
+    md_source = '| Model | AUC &darr; |  F_beta=2 | G_beta=2 | paper/source | code | \n'
+    md_source += '|---:|:---|:---|:---|:---|:---| \n'
+    cols = [col for col in df_rest.columns if col]
     for i, row in enumerate(df_rest[cols].values):
         md_source += '| ' + df_rest.index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2] + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
     print(md_source)

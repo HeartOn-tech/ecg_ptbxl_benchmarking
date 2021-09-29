@@ -44,15 +44,16 @@ def main(record_base_path):
 
         for exp_name, task in experiments:
             exps.append(exp_name)
-            e = SCP_Experiment(data_name, exp_name, task, datafolder_ptbxl, outputfolder, models, mode = mode)
 
-            e.prepare()
-            if mode != 'eval':
-                e.perform()
-            e.evaluate()
+            #e = SCP_Experiment(data_name, exp_name, task, datafolder_ptbxl, outputfolder, models, mode = mode)
+
+            #e.prepare()
+            #if mode != 'eval':
+            #    e.perform()
+            #e.evaluate()
 
         #generate greate summary table
-        #utils.generate_ptbxl_summary_table(exps, outputfolder)
+        utils.generate_ptbxl_summary_table(exps, outputfolder)
 
     ##########################################
     # EXPERIMENT BASED ICBEB DATA
@@ -62,6 +63,7 @@ def main(record_base_path):
         data_name = 'ICBEB'
         exp_name = 'exp_ICBEB'
         task = 'all'
+
         e = SCP_Experiment(data_name, exp_name, task, datafolder_icbeb, outputfolder, models, mode = mode)
 
         e.prepare()
