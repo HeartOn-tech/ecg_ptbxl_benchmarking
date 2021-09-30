@@ -153,45 +153,46 @@ class SCP_Experiment():
         np.array(ensemble_val).mean(axis=0).dump(ensemblepath + 'y_val_pred.npy')
         np.array(ensemble_test).mean(axis=0).dump(ensemblepath + 'y_test_pred.npy')
 
-    def evaluate(self, n_bootstraping_samples=100, n_jobs=20, bootstrap_eval=False, dumped_bootstraps=True):
-
+    def evaluate(self, n_bootstraping_samples=100, n_jobs=20, bootstrap_eval=False, dumped_bootstraps=True, data_types = ['test']):
         # get labels
+        data_types_ext = data_types
         y_labels = {}
-        y_labels['train'] = np.load(self.outputfolder+self.experiment_name+'/data/y_train.npy', allow_pickle=True)
-        y_labels['valid'] = np.load(self.outputfolder+self.experiment_name+'/data/y_val.npy', allow_pickle=True)
-        y_labels['test'] = np.load(self.outputfolder+self.experiment_name+'/data/y_test.npy', allow_pickle=True)
+        if not 'train' is data_types_ext:
+            data_types_ext.insert(0, 'train')
+
+        for data_type in data_types_ext:
+            name = utils.data_type_to_name(data_type)
+            y_labels[data_type] = np.load(self.outputfolder + self.experiment_name + '/data/y_' + name + '.npy', allow_pickle=True)
 
         # if bootstrapping then generate appropriate samples for each
         if bootstrap_eval:
             sample_inds = {}
             if not dumped_bootstraps:
-                sample_inds['train'] = np.array(utils.get_appropriate_bootstrap_samples(y_train, n_bootstraping_samples))
-                sample_inds['valid'] = np.array(utils.get_appropriate_bootstrap_samples(y_val, n_bootstraping_samples))
-                sample_inds['test'] = np.array(utils.get_appropriate_bootstrap_samples(y_test, n_bootstraping_samples))
-                # store samples for future evaluations
-                sample_inds['train'].dump(self.outputfolder+self.experiment_name+'/train_bootstrap_ids.npy')
-                sample_inds['valid'].dump(self.outputfolder+self.experiment_name+'/val_bootstrap_ids.npy')
-                sample_inds['test'].dump(self.outputfolder+self.experiment_name+'/test_bootstrap_ids.npy')
+                for data_type in data_types:
+                    sample_inds[data_type] = np.array(utils.get_appropriate_bootstrap_samples(y_labels[data_type], n_bootstraping_samples))
+                    # store samples for future evaluations
+                    name = utils.data_type_to_name(data_type)
+                    sample_inds[data_type].dump(self.outputfolder + self.experiment_name + '/' + name + '_bootstrap_ids.npy')
             else:
-                sample_inds['train'] = np.load(self.outputfolder+self.experiment_name+'/train_bootstrap_ids.npy', allow_pickle=True)
-                sample_inds['valid'] = np.load(self.outputfolder+self.experiment_name+'/val_bootstrap_ids.npy', allow_pickle=True)
-                sample_inds['test'] = np.load(self.outputfolder+self.experiment_name+'/test_bootstrap_ids.npy', allow_pickle=True)
+                for data_type in data_types:
+                    name = utils.data_type_to_name(data_type)
+                    sample_inds[data_type] = np.load(self.outputfolder + self.experiment_name + '/' + name + '_bootstrap_ids.npy', allow_pickle=True)
         #else:
         #    sample_inds['train'] = np.array([range(len(y_labels['train']))]) # y_train
         #    sample_inds['val'] = np.array([range(len(y_labels['val']))]) # y_val
         #    sample_inds['test'] = np.array([range(len(y_labels['test']))]) # y_test
 
         # iterate over all models fitted so far
-        for m in sorted(os.listdir(self.outputfolder+self.experiment_name+'/models')):
+        for m in sorted(os.listdir(self.outputfolder + self.experiment_name + '/models')):
             print('evaluation model: ', m)
-            mpath = self.outputfolder+self.experiment_name+'/models/'+m+'/'
-            rpath = self.outputfolder+self.experiment_name+'/models/'+m+'/results/'
+            mpath = self.outputfolder + self.experiment_name + '/models/' + m + '/'
+            rpath = self.outputfolder + self.experiment_name + '/models/' + m + '/results/'
 
             # load predictions
             y_preds = {}
-            y_preds['train'] = np.load(mpath+'y_train_pred.npy', allow_pickle=True)
-            y_preds['valid'] = np.load(mpath+'y_val_pred.npy', allow_pickle=True)
-            y_preds['test'] = np.load(mpath+'y_test_pred.npy', allow_pickle=True)
+            for data_type in data_types_ext:
+                name = utils.data_type_to_name(data_type)
+                y_preds[data_type] = np.load(mpath + 'y_' + name + '_pred.npy', allow_pickle=True)
 
             beta1 = 2 # Fbeta parameter
             beta2 = 2 # Gbeta parameter
@@ -202,15 +203,11 @@ class SCP_Experiment():
             thresholds_Gbeta = utils.find_optimal_cutoff_thresholds_for_Gbeta(y_labels['train'], y_preds['train'], beta2) # y_train, y_train_pred
             #else:
             #    thresholds = None
-            filenames = {}
-            filenames['train'] = 'train_results'
-            filenames['valid'] = 'valid_results'
-            filenames['test'] = 'test_results'
 
             pool = multiprocessing.Pool(n_jobs)
 
             for key in y_labels.keys():
-                print('generate_results(), type = ', key)
+                print('generate_results(), data_type = ', key)
                 # all samples
                 df_point = utils.generate_results(range(len(y_labels[key])), y_labels[key], y_preds[key], # range(len(y_test)), y_test, y_test_pred, thresholds
                     thresholds_Fbeta, thresholds_Gbeta, beta1, beta2)
@@ -234,7 +231,7 @@ class SCP_Experiment():
                         index = ['point'])
 
                 # dump results
-                df_result.to_csv(rpath + filenames[key] + '.csv')
+                df_result.to_csv(rpath + key + '_results' + '.csv')
 
             pool.close()
 

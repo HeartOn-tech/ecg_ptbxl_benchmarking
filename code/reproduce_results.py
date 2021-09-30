@@ -10,7 +10,7 @@ from configs.wavelet_configs import *
 def main(record_base_path):
     datafolder_ptbxl = os.path.join(record_base_path, 'ptbxl')  # '../data/ptbxl/'
     datafolder_icbeb = os.path.join(record_base_path, 'ICBEB')  # '../data/ICBEB/'
-    outputfolder = '../output_drozd_2/'
+    outputfolder = '../output/'
     mode = 'eval' # 'eval' - только расчет оценок классификации по моделям,
                  # 'predict' - только выполнение предсказания,
                  # 'fit' - выполнение обучения,
@@ -29,6 +29,8 @@ def main(record_base_path):
     ##########################################
     # STANDARD SCP EXPERIMENTS ON PTBXL
     ##########################################
+    data_types = ['train', 'valid', 'test']
+
     use_PTBXL = True
     if use_PTBXL:
         data_name = 'ptbxl'
@@ -45,20 +47,21 @@ def main(record_base_path):
         for exp_name, task in experiments:
             exps.append(exp_name)
 
-            #e = SCP_Experiment(data_name, exp_name, task, datafolder_ptbxl, outputfolder, models, mode = mode)
+            e = SCP_Experiment(data_name, exp_name, task, datafolder_ptbxl, outputfolder, models, mode = mode)
 
-            #e.prepare()
-            #if mode != 'eval':
-            #    e.perform()
-            #e.evaluate()
+            e.prepare()
+            if mode != 'eval':
+                e.perform()
+            e.evaluate(data_types = data_types)
 
         #generate greate summary table
-        utils.generate_ptbxl_summary_table(exps, outputfolder)
+        for data_type in data_types:
+            utils.generate_ptbxl_summary_table(exps, outputfolder, None, data_type)
 
     ##########################################
     # EXPERIMENT BASED ICBEB DATA
     ##########################################
-    use_ICBEB = False
+    use_ICBEB = True
     if use_ICBEB:
         data_name = 'ICBEB'
         exp_name = 'exp_ICBEB'
@@ -69,10 +72,11 @@ def main(record_base_path):
         e.prepare()
         if mode != 'eval':
             e.perform()
-        e.evaluate()
+        e.evaluate(data_types = data_types)
 
         # generate greate summary table
-        #utils.ICBEBE_table(exp_name, outputfolder)
+        for data_type in data_types:
+            utils.ICBEBE_table(exp_name, outputfolder, None, data_type)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

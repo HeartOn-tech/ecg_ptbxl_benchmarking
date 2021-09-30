@@ -23,6 +23,9 @@ def generate_results(idxs, y_true, y_pred, thresholds_Fbeta = None, thresholds_G
 def evaluate_experiment(y_true, y_pred, thresholds_Fbeta, thresholds_Gbeta, beta1, beta2):
     results = {}
 
+    # label based metrics
+    results['macro_auc'] = roc_auc_score(y_true, y_pred, average='macro')
+
     # PhysioNet/CinC Challenges metrics
     if not thresholds_Fbeta is None:
         # binary predictions for Fbeta
@@ -35,9 +38,6 @@ def evaluate_experiment(y_true, y_pred, thresholds_Fbeta, thresholds_Gbeta, beta
         y_pred_binary = apply_thresholds(y_pred, thresholds_Gbeta)
         challenge_scores = challenge_metrics(y_true, y_pred_binary, beta1, beta2)
         results['G_beta_macro'] = challenge_scores['G_beta_macro']
-
-    # label based metric
-    results['macro_auc'] = roc_auc_score(y_true, y_pred, average='macro')
     
     df_result = pd.DataFrame(results, index=[0])
     return df_result
@@ -92,7 +92,7 @@ def get_appropriate_bootstrap_samples(y_true, n_bootstraping_samples):
 #def find_optimal_cutoff_thresholds(y_true, y_pred):
 #	return [find_optimal_cutoff_threshold(y_true[:,i], y_pred[:,i]) for i in range(y_true.shape[1])]
 
-def find_optimal_cutoff_threshold_for_Fbeta(target, predicted, beta1, n_thresholds = 5): # 100
+def find_optimal_cutoff_threshold_for_Fbeta(target, predicted, beta1, n_thresholds = 100):
     thresholds = np.linspace(0.00, 1, n_thresholds)
     scores = [challenge_metrics(target, predicted > t, beta1, single = True)['F_beta_macro'] for t in thresholds]
     optimal_idx = np.argmax(scores)
@@ -102,7 +102,7 @@ def find_optimal_cutoff_thresholds_for_Fbeta(y_true, y_pred, beta1 = 2):
     print("optimize thresholds with respect to F_beta")
     return [find_optimal_cutoff_threshold_for_Fbeta(y_true[:,k][:,np.newaxis], y_pred[:,k][:,np.newaxis], beta1) for k in tqdm(range(y_true.shape[1]))]
 
-def find_optimal_cutoff_threshold_for_Gbeta(target, predicted, beta2, n_thresholds = 5): # 100
+def find_optimal_cutoff_threshold_for_Gbeta(target, predicted, beta2, n_thresholds = 100):
     thresholds = np.linspace(0.00, 1, n_thresholds)
     scores = [challenge_metrics(target, predicted > t, beta2, single = True)['G_beta_macro'] for t in thresholds]
     optimal_idx = np.argmax(scores)
@@ -353,6 +353,12 @@ def apply_standardizer(X, ss):
     X_tmp = np.array(X_tmp)
     return X_tmp
 
+def data_type_to_name(data_type):
+    if data_type == 'valid':
+        name = 'val'
+    else:
+        name = data_type
+    return name
 
 # DOCUMENTATION STUFF
 def exp_table(exp, folder, selection, data_type):
@@ -400,36 +406,50 @@ def generate_ptbxl_summary_table(exps, folder, selection = None, data_type = 'te
         dfs.append(exp_table(exp, folder, selection, data_type))
 
     df = pd.concat(dfs, keys = exps)
-    df.to_csv(os.path.join(folder, data_type + '_results_ptbxl.csv'))
+    #df.to_csv(os.path.join(folder, data_type + '_results_ptbxl.csv'))
 
     # helper output function for markdown tables
-    print('PTB_XL results')
+    print('PTB_XL results, data_type = ' + data_type, end = '')
     #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
     #df_rest = df_rest.sort_values('macro_auc', ascending=False)
     df_rest = df
-    our_work = 'https://arxiv.org/abs/2004.13701'
-    our_repo = 'https://github.com/helme/ecg_ptbxl_benchmarking/'
-    md_source = '| Model | AUC &darr; |  F_beta=2 | G_beta=2 | paper/source | code | \n'
-    md_source += '|---:|:---|:---|:---|:---|:---| \n'
     cols = [col for col in df_rest.columns if col]
-    for i, row in enumerate(df_rest[cols].values):
-        md_source += '| ' + df_rest.loc[exps[0]].index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2] + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
+    #our_work = 'https://arxiv.org/abs/2004.13701'
+    #our_repo = 'https://github.com/helme/ecg_ptbxl_benchmarking/'
+    md_head = '| Model ' # | AUC &darr; |  F_beta=2 | G_beta=2 | paper/source | code | \n'
+    for col in cols:
+        md_head += '| ' + col
+    md_head += ' |' # '|---:|:---|:---|:---|:---|:---|\n'
+
+    md_source = ''
+    for exp in exps:
+        md_source += '\nexp = ' + exp
+        md_source += '\n' + md_head
+        for i, row in enumerate(df_rest[cols].values):
+            md_source += '\n| ' + df_rest.loc[exp].index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2] # + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
+
+    md_source += '\n'
     print(md_source)
 
 def ICBEBE_table(exp, folder, selection = None, data_type = 'test'):
     df = exp_table(exp, folder, selection, data_type)
-    df.to_csv(os.path.join(folder, data_type + '_results_icbeb.csv'))
+    #df.to_csv(os.path.join(folder, data_type + '_results_icbeb.csv'))
 
     # helper output function for markdown tables
-    print('ICBEB results')
+    print('ICBEB results, data_type = ' + data_type)
     #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
     #df_rest = df_rest.sort_values('macro_auc', ascending=False)
     df_rest = df
-    our_work = 'https://arxiv.org/abs/2004.13701'
-    our_repo = 'https://github.com/helme/ecg_ptbxl_benchmarking/'
-    md_source = '| Model | AUC &darr; |  F_beta=2 | G_beta=2 | paper/source | code | \n'
-    md_source += '|---:|:---|:---|:---|:---|:---| \n'
     cols = [col for col in df_rest.columns if col]
+    #our_work = 'https://arxiv.org/abs/2004.13701'
+    #our_repo = 'https://github.com/helme/ecg_ptbxl_benchmarking/'
+    md_source = '| Model ' # | AUC &darr; |  F_beta=2 | G_beta=2 | paper/source | code | \n'
+    for col in cols:
+        md_source += '| ' + col
+    md_source += ' |' # '|---:|:---|:---|:---|:---|:---|\n'
+
     for i, row in enumerate(df_rest[cols].values):
-        md_source += '| ' + df_rest.index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2] + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
+        md_source += '\n| ' + df_rest.index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2] # + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
+
+    md_source += '\n'
     print(md_source)
