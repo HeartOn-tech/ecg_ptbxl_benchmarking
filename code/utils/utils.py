@@ -406,7 +406,7 @@ def generate_ptbxl_summary_table(exps, folder, selection = None, data_type = 'te
         dfs.append(exp_table(exp, folder, selection, data_type))
 
     df = pd.concat(dfs, keys = exps)
-    #df.to_csv(os.path.join(folder, data_type + '_results_ptbxl.csv'))
+    df.to_csv(os.path.join(folder, data_type + '_results_ptbxl.csv'))
 
     # helper output function for markdown tables
     print('PTB_XL results, data_type = ' + data_type, end = '')
@@ -425,7 +425,7 @@ def generate_ptbxl_summary_table(exps, folder, selection = None, data_type = 'te
     for exp in exps:
         md_source += '\nexp = ' + exp
         md_source += '\n' + md_head
-        for i, row in enumerate(df_rest[cols].values):
+        for i, row in enumerate(df_rest.loc[exp, cols].values):
             md_source += '\n| ' + df_rest.loc[exp].index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2] # + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
 
     md_source += '\n'
@@ -433,7 +433,7 @@ def generate_ptbxl_summary_table(exps, folder, selection = None, data_type = 'te
 
 def ICBEBE_table(exp, folder, selection = None, data_type = 'test'):
     df = exp_table(exp, folder, selection, data_type)
-    #df.to_csv(os.path.join(folder, data_type + '_results_icbeb.csv'))
+    df.to_csv(os.path.join(folder, data_type + '_results_icbeb.csv'))
 
     # helper output function for markdown tables
     print('ICBEB results, data_type = ' + data_type)

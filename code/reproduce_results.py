@@ -11,7 +11,8 @@ def main(record_base_path):
     datafolder_ptbxl = os.path.join(record_base_path, 'ptbxl')  # '../data/ptbxl/'
     datafolder_icbeb = os.path.join(record_base_path, 'ICBEB')  # '../data/ICBEB/'
     outputfolder = '../output/'
-    mode = 'eval' # 'eval' - только расчет оценок классификации по моделям,
+    mode = 'results'# 'results' - только таблица результатов
+                 # 'eval' - только расчет оценок классификации по моделям,
                  # 'predict' - только выполнение предсказания,
                  # 'fit' - выполнение обучения,
                  # 'finetune' - дообучение моделей (только fastai-модели)
@@ -35,24 +36,24 @@ def main(record_base_path):
     if use_PTBXL:
         data_name = 'ptbxl'
         experiments = [
-            ('exp0', 'all')#,
-            #('exp1', 'diagnostic'),
-            #('exp1.1', 'subdiagnostic'),
-            #('exp1.1.1', 'superdiagnostic'),
-            #('exp2', 'form'),
-            #('exp3', 'rhythm')
+            ('exp0', 'all'),
+            ('exp1', 'diagnostic'),
+            ('exp1.1', 'subdiagnostic'),
+            ('exp1.1.1', 'superdiagnostic'),
+            ('exp2', 'form'),
+            ('exp3', 'rhythm')
            ]
         exps = []
 
         for exp_name, task in experiments:
             exps.append(exp_name)
 
-            e = SCP_Experiment(data_name, exp_name, task, datafolder_ptbxl, outputfolder, models, mode = mode)
-
-            e.prepare()
-            if mode != 'eval':
-                e.perform()
-            e.evaluate(data_types = data_types)
+            if mode != 'results':
+                e = SCP_Experiment(data_name, exp_name, task, datafolder_ptbxl, outputfolder, models, mode = mode)
+                if mode != 'eval':
+                    e.prepare()
+                    e.perform()
+                e.evaluate(data_types = data_types)
 
         #generate greate summary table
         for data_type in data_types:
@@ -67,12 +68,12 @@ def main(record_base_path):
         exp_name = 'exp_ICBEB'
         task = 'all'
 
-        e = SCP_Experiment(data_name, exp_name, task, datafolder_icbeb, outputfolder, models, mode = mode)
-
-        e.prepare()
-        if mode != 'eval':
-            e.perform()
-        e.evaluate(data_types = data_types)
+        if mode != 'results':
+            e = SCP_Experiment(data_name, exp_name, task, datafolder_icbeb, outputfolder, models, mode = mode)
+            if mode != 'eval':
+                e.prepare()
+                e.perform()
+            e.evaluate(data_types = data_types)
 
         # generate greate summary table
         for data_type in data_types:

@@ -155,9 +155,9 @@ class SCP_Experiment():
 
     def evaluate(self, n_bootstraping_samples=100, n_jobs=20, bootstrap_eval=False, dumped_bootstraps=True, data_types = ['test']):
         # get labels
-        data_types_ext = data_types
         y_labels = {}
-        if not 'train' is data_types_ext:
+        data_types_ext = [data_type for data_type in data_types]
+        if not 'train' in data_types_ext:
             data_types_ext.insert(0, 'train')
 
         for data_type in data_types_ext:
