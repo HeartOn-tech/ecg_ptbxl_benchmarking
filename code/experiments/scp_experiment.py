@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import multiprocessing
 from itertools import repeat
+from sklearn import metrics
 
 class SCP_Experiment():
     '''
@@ -183,6 +184,11 @@ class SCP_Experiment():
         #    sample_inds['test'] = np.array([range(len(y_labels['test']))]) # y_test
 
         # iterate over all models fitted so far
+        label_inds = range(y_labels['train'].shape[1])
+        roc_curve_cols = ['threshold', 'fpr', 'tpr']
+        pr_curve_cols = ['threshold', 'precision', 'recall']
+        det_curve_cols = ['threshold', 'fpr', 'fnr']
+
         for m in sorted(os.listdir(self.outputfolder + self.experiment_name + '/models')):
             print('evaluation model: ', m)
             mpath = self.outputfolder + self.experiment_name + '/models/' + m + '/'
@@ -194,47 +200,90 @@ class SCP_Experiment():
                 name = utils.data_type_to_name(data_type)
                 y_preds[data_type] = np.load(mpath + 'y_' + name + '_pred.npy', allow_pickle=True)
 
-            beta1 = 2 # Fbeta parameter
-            beta2 = 2 # Gbeta parameter
-            #if self.data_name == 'ICBEB':
-            # compute classwise thresholds such that recall-focused Fbeta is optimized
-            thresholds_Fbeta = utils.find_optimal_cutoff_thresholds_for_Fbeta(y_labels['train'], y_preds['train'], beta1) # y_train, y_train_pred
-            # compute classwise thresholds such that recall-focused Gbeta is optimized
-            thresholds_Gbeta = utils.find_optimal_cutoff_thresholds_for_Gbeta(y_labels['train'], y_preds['train'], beta2) # y_train, y_train_pred
-            #else:
-            #    thresholds = None
+            if self.mode == 'estim':
+                # thresholds estimation
+                roc_dfs = [] # roc dataframes
+                pr_dfs = [] #precision-recall dataframes
+                det_dfs = [] #det dataframes
+                for l in label_inds: # cycle by labels (columns)
+                    y_labels_col = y_labels['train'][:, l]
+                    y_preds_col = y_preds['train'][:, l]
+                    # roc_curve
+                    roc_fpr, roc_tpr, roc_thresholds = metrics.roc_curve(y_labels_col, y_preds_col)
+                    n_roc_thrs = roc_thresholds.shape[0]
+                    roc_res = np.zeros((n_roc_thrs, len(roc_curve_cols)))
+                    roc_res[:, 0] = roc_thresholds
+                    roc_res[:, 1] = roc_fpr[0:n_roc_thrs]
+                    roc_res[:, 2] = roc_tpr[0:n_roc_thrs]
+                    # precision_recall_curve
+                    pr_precision, pr_recall, pr_thresholds = metrics.precision_recall_curve(y_labels_col, y_preds_col)
+                    n_pr_thrs = pr_thresholds.shape[0]
+                    pr_res = np.zeros((n_pr_thrs, len(pr_curve_cols)))
+                    pr_res[:, 0] = pr_thresholds
+                    pr_res[:, 1] = pr_precision[0:n_pr_thrs]
+                    pr_res[:, 2] = pr_recall[0:n_pr_thrs]
+                    # det_curve
+                    det_fpr, det_fnr, det_thresholds = metrics.det_curve(y_labels_col, y_preds_col)
+                    n_det_thrs = det_thresholds.shape[0]
+                    det_res = np.zeros((n_det_thrs, len(det_curve_cols)))
+                    det_res[:, 0] = det_thresholds
+                    det_res[:, 1] = det_fpr[0:n_det_thrs]
+                    det_res[:, 2] = det_fnr[0:n_det_thrs]
 
-            pool = multiprocessing.Pool(n_jobs)
+                    roc_dfs.append(pd.DataFrame(roc_res, columns = roc_curve_cols))
+                    pr_dfs.append(pd.DataFrame(pr_res, columns = pr_curve_cols))
+                    det_dfs.append(pd.DataFrame(det_res, columns = det_curve_cols))
 
-            for key in y_labels.keys():
-                print('generate_results(), data_type = ', key)
-                # all samples
-                df_point = utils.generate_results(range(len(y_labels[key])), y_labels[key], y_preds[key], # range(len(y_test)), y_test, y_test_pred, thresholds
-                    thresholds_Fbeta, thresholds_Gbeta, beta1, beta2)
+                df_roc_res = pd.concat(roc_dfs, keys = label_inds)
+                df_roc_res.to_csv(rpath + 'train' + '_roc_curves' + '.csv')
+                df_pr_res = pd.concat(pr_dfs, keys = label_inds)
+                df_pr_res.to_csv(rpath + 'train' + '_pr_curves' + '.csv')
+                df_det_res = pd.concat(det_dfs, keys = label_inds)
+                df_det_res.to_csv(rpath + 'train' + '_det_curves' + '.csv')
 
-                if bootstrap_eval:
-                    df = pd.concat(pool.starmap(utils.generate_results, zip(sample_inds[key], repeat(y_labels[key]), repeat(y_preds[key]), # test_samples, repeat(y_test), repeat(y_test_pred)
-                        repeat(thresholds_Fbeta), repeat(thresholds_Gbeta), repeat(beta1), repeat(beta2))))
+            else:
+                # effectiveness evaluation
+                beta1 = 2 # Fbeta parameter
+                beta2 = 2 # Gbeta parameter
+                #if self.data_name == 'ICBEB':
+                # compute classwise thresholds such that recall-focused Fbeta is optimized
+                thresholds_Fbeta = utils.find_optimal_cutoff_thresholds_for_Fbeta(y_labels['train'], y_preds['train'], beta1) # y_train, y_train_pred
+                # compute classwise thresholds such that recall-focused Gbeta is optimized
+                #thresholds_Gbeta = utils.find_optimal_cutoff_thresholds_for_Gbeta(y_labels['train'], y_preds['train'], beta2) # y_train, y_train_pred
+                #else:
+                #    thresholds = None
 
-                    df_result = pd.DataFrame(
-                        np.array([
-                            df_point.values[0],
-                            df.mean().values,
-                            df.quantile(0.05).values,
-                            df.quantile(0.95).values]), 
-                        columns = df.columns, 
-                        index = ['point', 'mean', 'lower', 'upper'])
-                else:
-                    df_result = pd.DataFrame(
-                        df_point.values,
-                        columns = df_point.columns,
-                        index = ['point'])
+                pool = multiprocessing.Pool(n_jobs)
 
-                # dump results
-                df_result.to_csv(rpath + key + '_results' + '.csv')
+                for key in y_labels.keys():
+                    print('generate_results(), data_type = ', key)
+                    # all samples
+                    df_point = utils.generate_results(range(len(y_labels[key])), y_labels[key], y_preds[key], # range(len(y_test)), y_test, y_test_pred, thresholds
+                        thresholds_Fbeta, thresholds_Gbeta, beta1, beta2)
 
-            pool.close()
+                    if bootstrap_eval:
+                        df = pd.concat(pool.starmap(utils.generate_results, zip(sample_inds[key], repeat(y_labels[key]), repeat(y_preds[key]), # test_samples, repeat(y_test), repeat(y_test_pred)
+                            repeat(thresholds_Fbeta), repeat(thresholds_Fbeta), repeat(beta1), repeat(beta2))))
 
-            #tr_df_result.to_csv(rpath+'tr_results.csv')
-            #val_df_result.to_csv(rpath+'val_results.csv')
-            #te_df_result.to_csv(rpath+'te_results.csv')
+                        df_result = pd.DataFrame(
+                            np.array([
+                                df_point.values[0],
+                                df.mean().values,
+                                df.quantile(0.05).values,
+                                df.quantile(0.95).values]), 
+                            columns = df.columns, 
+                            index = ['point', 'mean', 'lower', 'upper'])
+                    else:
+                        df_result = pd.DataFrame(
+                            df_point.values,
+                            columns = df_point.columns,
+                            index = ['point'])
+
+                    # dump results
+                    df_result.to_csv(rpath + key + '_results' + '.csv')
+
+                pool.close()
+
+                #tr_df_result.to_csv(rpath+'tr_results.csv')
+                #val_df_result.to_csv(rpath+'val_results.csv')
+                #te_df_result.to_csv(rpath+'te_results.csv')

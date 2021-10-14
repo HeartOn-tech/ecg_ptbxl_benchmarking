@@ -11,10 +11,12 @@ def main(record_base_path):
     datafolder_ptbxl = os.path.join(record_base_path, 'ptbxl')  # '../data/ptbxl/'
     datafolder_icbeb = os.path.join(record_base_path, 'ICBEB')  # '../data/ICBEB/'
     outputfolder = '../output/'
-    mode = 'results'# 'results' - только таблица результатов
+    mode = 'estim'
+                 # 'results' - только таблица результатов
+                 # 'estim' - только оценка эффективности моделей в зависимости от порога
                  # 'eval' - только расчет оценок классификации по моделям,
-                 # 'predict' - только выполнение предсказания,
-                 # 'fit' - выполнение обучения,
+                 # 'predict' - только выполнение предсказания по обученным моделям,
+                 # 'fit' - выполнение обучения моделей,
                  # 'finetune' - дообучение моделей (только fastai-модели)
 
     models = [
@@ -50,14 +52,15 @@ def main(record_base_path):
 
             if mode != 'results':
                 e = SCP_Experiment(data_name, exp_name, task, datafolder_ptbxl, outputfolder, models, mode = mode)
-                if mode != 'eval':
+                if mode != 'eval' and mode != 'estim':
                     e.prepare()
                     e.perform()
                 e.evaluate(data_types = data_types)
 
         #generate greate summary table
-        for data_type in data_types:
-            utils.generate_ptbxl_summary_table(exps, outputfolder, None, data_type)
+        if mode != 'estim':
+            for data_type in data_types:
+                utils.generate_ptbxl_summary_table(exps, outputfolder, None, data_type)
 
     ##########################################
     # EXPERIMENT BASED ICBEB DATA
@@ -70,14 +73,15 @@ def main(record_base_path):
 
         if mode != 'results':
             e = SCP_Experiment(data_name, exp_name, task, datafolder_icbeb, outputfolder, models, mode = mode)
-            if mode != 'eval':
+            if mode != 'eval' and mode != 'estim':
                 e.prepare()
                 e.perform()
             e.evaluate(data_types = data_types)
 
         # generate greate summary table
-        for data_type in data_types:
-            utils.ICBEBE_table(exp_name, outputfolder, None, data_type)
+        if mode != 'estim':
+            for data_type in data_types:
+                utils.ICBEBE_table(exp_name, outputfolder, None, data_type)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
