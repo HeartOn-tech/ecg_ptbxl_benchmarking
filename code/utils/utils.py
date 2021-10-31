@@ -42,6 +42,61 @@ def evaluate_experiment(y_true, y_pred, thresholds_Fbeta, thresholds_Gbeta, beta
     df_result = pd.DataFrame(results, index=[0])
     return df_result
 
+# calc conf matrix for unique sorted thresholds
+def conf_matrix(y_true, y_pred):
+    inds = np.argsort(y_pred)
+    y_pred_uniq = np.unique(y_pred[inds]) # return_index = True
+    #inds = range(len(y_pred_uniq))
+    out = np.zeros((len(y_pred_uniq), 4), dtype = int) # array by y_th and TP, FP, TN, FN
+
+    # TP, FP
+    first_it = True
+    i_prev = inds[-1]
+    j = len(y_pred_uniq) # out[j]
+    TP_tmp = 0
+    FP_tmp = 0
+
+    for i in inds[::-1]: # y_true[i], y_pred[i]
+
+        if y_true[i]: # y_true[i] = 1
+            TP_tmp += 1 # TP
+        else: # y_true[i] = 0
+            FP_tmp += 1 # FP
+
+        if first_it or y_pred[i] != y_pred[i_prev]: # new out elem
+            j -= 1
+            if first_it:
+                first_it = False
+
+        out[j][0] = TP_tmp
+        out[j][1] = FP_tmp
+        # print('j = ', j, 'y_pred[i] = ', y_pred[i], ', i = ', i, 'i_prev = ', i_prev)
+
+        i_prev = i
+
+    # TN, FN
+    i_prev = inds[0]
+    j = 0 # out[j]
+    TN_tmp = 0
+    FN_tmp = 0
+
+    for i in inds[1:]: # y_true[i], y_pred[i]
+
+        if not y_true[i_prev]: # y_true[i-1] = 0
+            TN_tmp += 1 # TN
+        else:
+            FN_tmp += 1 # FN
+
+        if y_pred[i] != y_pred[i_prev]: # new out elem
+            j += 1
+            out[j][2] = TN_tmp
+            out[j][3] = FN_tmp
+        # print('j = ', j, 'y_pred[i] = ', y_pred[i], ', i = ', i, 'i_prev = ', i_prev)
+
+        i_prev = i
+
+    return out, y_pred_uniq
+
 def challenge_metrics(y_true, y_pred, beta1 = 2, beta2 = 2, class_weights = None, single = False):
     f_beta = 0
     g_beta = 0

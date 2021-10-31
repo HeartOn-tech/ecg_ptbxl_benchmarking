@@ -190,7 +190,7 @@ class SCP_Experiment():
         det_curve_cols = ['threshold', 'fpr', 'fnr']
 
         for m in sorted(os.listdir(self.outputfolder + self.experiment_name + '/models')):
-            print('evaluation model: ', m)
+            print('evaluate(): data_name:', self.data_name, ', exp:', self.experiment_name, ', model:', m)
             mpath = self.outputfolder + self.experiment_name + '/models/' + m + '/'
             rpath = self.outputfolder + self.experiment_name + '/models/' + m + '/results/'
 
@@ -202,12 +202,21 @@ class SCP_Experiment():
 
             if self.mode == 'estim':
                 # thresholds estimation
+                conf_m_dfs = [] # conf matricies
                 roc_dfs = [] # roc dataframes
                 pr_dfs = [] #precision-recall dataframes
                 det_dfs = [] #det dataframes
                 for l in label_inds: # cycle by labels (columns)
                     y_labels_col = y_labels['train'][:, l]
                     y_preds_col = y_preds['train'][:, l]
+                    # tp, fp, tn, fn
+                    conf_m, y_pred_uniq = utils.conf_matrix(y_labels_col, y_preds_col)
+                    df_conf_m = pd.DataFrame(conf_m, columns = ['tp', 'fp', 'tn', 'fn'])
+                    df_conf_m.insert(0, 'threshold', y_pred_uniq)
+                    df_conf_m['FPR'] = conf_m[:, 1] / (conf_m[:, 1] + conf_m[:, 2]) # fpr = fp / (fp + tn)
+                    df_conf_m['FNR'] = conf_m[:, 3] / (conf_m[:, 0] + conf_m[:, 3]) # fnr = fn / (fn + tp)
+                    df_conf_m['PPV'] = conf_m[:, 0] / (conf_m[:, 0] + conf_m[:, 1]) # ppv = tp / (tp + fp)
+
                     # roc_curve
                     roc_fpr, roc_tpr, roc_thresholds = metrics.roc_curve(y_labels_col, y_preds_col)
                     n_roc_thrs = roc_thresholds.shape[0]
@@ -230,16 +239,19 @@ class SCP_Experiment():
                     det_res[:, 1] = det_fpr[0:n_det_thrs]
                     det_res[:, 2] = det_fnr[0:n_det_thrs]
 
+                    conf_m_dfs.append(df_conf_m)
                     roc_dfs.append(pd.DataFrame(roc_res, columns = roc_curve_cols))
                     pr_dfs.append(pd.DataFrame(pr_res, columns = pr_curve_cols))
                     det_dfs.append(pd.DataFrame(det_res, columns = det_curve_cols))
 
-                df_roc_res = pd.concat(roc_dfs, keys = label_inds)
-                df_roc_res.to_csv(rpath + 'train' + '_roc_curves' + '.csv')
-                df_pr_res = pd.concat(pr_dfs, keys = label_inds)
-                df_pr_res.to_csv(rpath + 'train' + '_pr_curves' + '.csv')
-                df_det_res = pd.concat(det_dfs, keys = label_inds)
-                df_det_res.to_csv(rpath + 'train' + '_det_curves' + '.csv')
+                df_conf_m_res = pd.concat(conf_m_dfs, keys = label_inds, names = ['label', 'i'])
+                df_conf_m_res.to_csv(rpath + 'train' + '_conf_mat' + '.csv', ';', decimal = ',')
+                df_roc_res = pd.concat(roc_dfs, keys = label_inds, names = ['label', 'i'])
+                df_roc_res.to_csv(rpath + 'train' + '_roc_curves' + '.csv', ';', decimal = ',')
+                df_pr_res = pd.concat(pr_dfs, keys = label_inds, names = ['label', 'i'])
+                df_pr_res.to_csv(rpath + 'train' + '_pr_curves' + '.csv', ';', decimal = ',')
+                df_det_res = pd.concat(det_dfs, keys = label_inds, names = ['label', 'i'])
+                df_det_res.to_csv(rpath + 'train' + '_det_curves' + '.csv', ';', decimal = ',')
 
             else:
                 # effectiveness evaluation
