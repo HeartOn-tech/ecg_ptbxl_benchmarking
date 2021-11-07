@@ -4,15 +4,15 @@ import re
 import glob
 import pickle
 import copy
-
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 import wfdb
 import ast
 from sklearn.metrics import fbeta_score, roc_auc_score, roc_curve, roc_curve, auc
 from sklearn.preprocessing import StandardScaler, MultiLabelBinarizer
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.axes._axes import _log as matplotlib_axes_logger
 import warnings
 
@@ -96,6 +96,42 @@ def conf_matrix(y_true, y_pred):
         i_prev = i
 
     return out, y_pred_uniq
+
+# build graph
+def build_graph(pdf, y_pred, fpr_fnr_etc, fpr_fnr_labels, text):
+
+    mm = 1.0 / 25.4  # milimeters in inches
+    fig, (ax_txt, ax1, ax2) = plt.subplots(nrows = 3, ncols = 1, figsize = (160*mm, 296.97*mm), gridspec_kw = {'height_ratios': [1, 10, 10]})
+
+    # text graph
+    ax_txt.axis('off')
+    ax_txt.text(0.5, 0.0, text, size = 12, ha = 'center')
+
+    # main graph
+    for i in range(len(fpr_fnr_labels)):
+        ax1.plot(y_pred, fpr_fnr_etc[:, i], label = fpr_fnr_labels[i], linewidth = 1.0)
+    ax1.set_xlim(0.0, 1.0)
+    ax1.set_ylim(0.0, 1.0)
+    ax1.set(xlabel = 'threshold', ylabel = 'FPR, FNR, etc', title = 'FPR, FNR, etc')
+    ax1.legend(loc = 'center right')
+    ticks = np.linspace(0.0, 1.0, 11)
+    ax1.set_xticks(ticks)
+    ax1.set_yticks(ticks)
+    #ax1.minorticks_on()
+    ax1.grid(True, which = 'major', linestyle = '--')
+    #ax1.grid(True, which = 'minor', linestyle = '--')
+
+    # ROC graph
+    ax2.plot(fpr_fnr_etc[:, 0], fpr_fnr_etc[:, 2], label = 'ROC', linewidth = 1.0)
+    ax2.set_xlim(0.0, 1.0)
+    ax2.set_ylim(0.0, 1.0)
+    ax2.set(xlabel = fpr_fnr_labels[0], ylabel = fpr_fnr_labels[2], title = 'ROC')
+    ax2.set_xticks(ticks)
+    ax2.set_yticks(ticks)
+    ax2.grid(True, which = 'major', linestyle = '--')
+    plt.tight_layout()
+    pdf.savefig()
+    plt.close()
 
 def challenge_metrics(y_true, y_pred, beta1 = 2, beta2 = 2, class_weights = None, single = False):
     f_beta = 0

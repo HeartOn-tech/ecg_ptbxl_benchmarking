@@ -1,4 +1,3 @@
-from utils import utils
 import os
 import pickle
 import pandas as pd
@@ -6,13 +5,29 @@ import numpy as np
 import multiprocessing
 from itertools import repeat
 from sklearn import metrics
+from utils import utils
+from matplotlib.backends.backend_pdf import PdfPages
 
 class SCP_Experiment():
     '''
         Experiment on SCP-ECG statements. All experiments based on SCP are performed and evaluated the same way.
     '''
 
-    def __init__(self, data_name, experiment_name, task, datafolder, outputfolder, models, sampling_frequency=100, min_samples=0, train_fold=8, val_fold=9, test_fold=10, folds_type='strat', mode = 'predict'):
+    def __init__(self,
+                 data_name,
+                 experiment_name,
+                 task,
+                 datafolder,
+                 outputfolder,
+                 models,
+                 sampling_frequency = 100,
+                 min_samples = 0,
+                 train_fold = 8,
+                 val_fold = 9,
+                 test_fold = 10,
+                 folds_type = 'strat',
+                 mode = 'predict',
+                 save_eval_txt = False):
         self.models = models
         self.min_samples = min_samples
         self.task = task
@@ -26,6 +41,7 @@ class SCP_Experiment():
         self.sampling_frequency = sampling_frequency
         self.data_name = data_name
         self.mode = mode
+        self.save_eval_txt = save_eval_txt # save output csv files - True/False
 
         # create folder structure if needed
         exp_folder = os.path.join(self.outputfolder, self.experiment_name)
@@ -155,15 +171,23 @@ class SCP_Experiment():
         np.array(ensemble_test).mean(axis=0).dump(ensemblepath + 'y_test_pred.npy')
 
     def evaluate(self, n_bootstraping_samples=100, n_jobs=20, bootstrap_eval=False, dumped_bootstraps=True, data_types = ['test']):
-        # get labels
-        y_labels = {}
-        data_types_ext = [data_type for data_type in data_types]
-        if not 'train' in data_types_ext:
-            data_types_ext.insert(0, 'train')
 
+        # data types for processing
+        #data_types_ext = [data_type for data_type in data_types]
+        #if not 'train' in data_types_ext:
+        #    data_types_ext.insert(0, 'train')
+        data_types_ext = ['train', 'valid', 'test']
+
+        data_folder = os.path.join(self.outputfolder, self.experiment_name, 'data')
+        # load MultiLabelBinarizer object
+        with open(os.path.join(data_folder, 'mlb.pkl'), 'rb') as tokenizer:
+            mlb = pickle.load(tokenizer)
+
+        # load actual class labels
+        y_labels = {}
         for data_type in data_types_ext:
             name = utils.data_type_to_name(data_type)
-            y_labels[data_type] = np.load(self.outputfolder + self.experiment_name + '/data/y_' + name + '.npy', allow_pickle=True)
+            y_labels[data_type] = np.load(os.path.join(data_folder, 'y_' + name + '.npy'), allow_pickle = True)
 
         # if bootstrapping then generate appropriate samples for each
         if bootstrap_eval:
@@ -183,13 +207,12 @@ class SCP_Experiment():
         #    sample_inds['val'] = np.array([range(len(y_labels['val']))]) # y_val
         #    sample_inds['test'] = np.array([range(len(y_labels['test']))]) # y_test
 
-        # iterate over all models fitted so far
         label_inds = range(y_labels['train'].shape[1])
-        roc_curve_cols = ['threshold', 'fpr', 'tpr']
-        pr_curve_cols = ['threshold', 'precision', 'recall']
-        det_curve_cols = ['threshold', 'fpr', 'fnr']
 
+        # iterate over all models fitted so far
         for m in sorted(os.listdir(self.outputfolder + self.experiment_name + '/models')):
+            #if m != 'fastai_xresnet1d101':
+            #    continue
             print('evaluate(): data_name:', self.data_name, ', exp:', self.experiment_name, ', model:', m)
             mpath = self.outputfolder + self.experiment_name + '/models/' + m + '/'
             rpath = self.outputfolder + self.experiment_name + '/models/' + m + '/results/'
@@ -202,64 +225,70 @@ class SCP_Experiment():
 
             if self.mode == 'estim':
                 # thresholds estimation
-                conf_m_dfs = [] # conf matricies
-                roc_dfs = [] # roc dataframes
-                pr_dfs = [] #precision-recall dataframes
-                det_dfs = [] #det dataframes
-                for l in label_inds: # cycle by labels (columns)
-                    y_labels_col = y_labels['train'][:, l]
-                    y_preds_col = y_preds['train'][:, l]
-                    # tp, fp, tn, fn
-                    conf_m, y_pred_uniq = utils.conf_matrix(y_labels_col, y_preds_col)
-                    df_conf_m = pd.DataFrame(conf_m, columns = ['tp', 'fp', 'tn', 'fn'])
-                    df_conf_m.insert(0, 'threshold', y_pred_uniq)
-                    df_conf_m['FPR'] = conf_m[:, 1] / (conf_m[:, 1] + conf_m[:, 2]) # fpr = fp / (fp + tn)
-                    df_conf_m['FNR'] = conf_m[:, 3] / (conf_m[:, 0] + conf_m[:, 3]) # fnr = fn / (fn + tp)
-                    df_conf_m['PPV'] = conf_m[:, 0] / (conf_m[:, 0] + conf_m[:, 1]) # ppv = tp / (tp + fp)
+                path_conf = rpath + 'train' + '_conf_mat'
 
-                    # roc_curve
-                    roc_fpr, roc_tpr, roc_thresholds = metrics.roc_curve(y_labels_col, y_preds_col)
-                    n_roc_thrs = roc_thresholds.shape[0]
-                    roc_res = np.zeros((n_roc_thrs, len(roc_curve_cols)))
-                    roc_res[:, 0] = roc_thresholds
-                    roc_res[:, 1] = roc_fpr[0:n_roc_thrs]
-                    roc_res[:, 2] = roc_tpr[0:n_roc_thrs]
-                    # precision_recall_curve
-                    pr_precision, pr_recall, pr_thresholds = metrics.precision_recall_curve(y_labels_col, y_preds_col)
-                    n_pr_thrs = pr_thresholds.shape[0]
-                    pr_res = np.zeros((n_pr_thrs, len(pr_curve_cols)))
-                    pr_res[:, 0] = pr_thresholds
-                    pr_res[:, 1] = pr_precision[0:n_pr_thrs]
-                    pr_res[:, 2] = pr_recall[0:n_pr_thrs]
-                    # det_curve
-                    det_fpr, det_fnr, det_thresholds = metrics.det_curve(y_labels_col, y_preds_col)
-                    n_det_thrs = det_thresholds.shape[0]
-                    det_res = np.zeros((n_det_thrs, len(det_curve_cols)))
-                    det_res[:, 0] = det_thresholds
-                    det_res[:, 1] = det_fpr[0:n_det_thrs]
-                    det_res[:, 2] = det_fnr[0:n_det_thrs]
+                # for current pdf file
+                with PdfPages(path_conf + '.pdf') as pdf:
+                    conf_m_dfs = [] # conf matricies
 
-                    conf_m_dfs.append(df_conf_m)
-                    roc_dfs.append(pd.DataFrame(roc_res, columns = roc_curve_cols))
-                    pr_dfs.append(pd.DataFrame(pr_res, columns = pr_curve_cols))
-                    det_dfs.append(pd.DataFrame(det_res, columns = det_curve_cols))
+                    # cycle by labels (columns)
+                    for l in label_inds: # [0]
+                        y_labels_col = y_labels['train'][:, l]
+                        y_preds_col = y_preds['train'][:, l]
 
-                df_conf_m_res = pd.concat(conf_m_dfs, keys = label_inds, names = ['label', 'i'])
-                df_conf_m_res.to_csv(rpath + 'train' + '_conf_mat' + '.csv', ';', decimal = ',')
-                df_roc_res = pd.concat(roc_dfs, keys = label_inds, names = ['label', 'i'])
-                df_roc_res.to_csv(rpath + 'train' + '_roc_curves' + '.csv', ';', decimal = ',')
-                df_pr_res = pd.concat(pr_dfs, keys = label_inds, names = ['label', 'i'])
-                df_pr_res.to_csv(rpath + 'train' + '_pr_curves' + '.csv', ';', decimal = ',')
-                df_det_res = pd.concat(det_dfs, keys = label_inds, names = ['label', 'i'])
-                df_det_res.to_csv(rpath + 'train' + '_det_curves' + '.csv', ';', decimal = ',')
+                        # tp, fp, tn, fn
+                        conf_m, y_pred_uniq = utils.conf_matrix(y_labels_col, y_preds_col)
+                        fpr_fnr_etc = np.zeros((len(y_pred_uniq), 7), dtype = float)
+                        fpr_fnr_labels = ['FPR', 'FNR', 'TPR', 'TNR', 'PPV', 'FPR+FNR', 'J=TPR+TNR-1']
+                        fpr_fnr_etc[:, 0] = conf_m[:, 1] / (conf_m[:, 1] + conf_m[:, 2]) # FPR = fp / (fp + tn)
+                        fpr_fnr_etc[:, 1] = conf_m[:, 3] / (conf_m[:, 0] + conf_m[:, 3]) # FNR = fn / (fn + tp)
+                        fpr_fnr_etc[:, 2] = 1.0 - fpr_fnr_etc[:, 1] # TPR = 1 - FNR
+                        fpr_fnr_etc[:, 3] = 1.0 - fpr_fnr_etc[:, 0] # TNR = 1 - FPR
+                        fpr_fnr_etc[:, 4] = conf_m[:, 0] / (conf_m[:, 0] + conf_m[:, 1]) # PPV = tp / (tp + fp)
+                        fpr_fnr_etc[:, 5] = fpr_fnr_etc[:, 0] + fpr_fnr_etc[:, 1] # FPR + FNR
+                        fpr_fnr_etc[:, 6] = fpr_fnr_etc[:, 2] + fpr_fnr_etc[:, 3] - 1.0 # J = TPR + TNR - 1
+
+                        # write to dataframe
+                        df_conf_m = pd.DataFrame(conf_m, columns = ['tp', 'fp', 'tn', 'fn'])
+                        df_conf_m.insert(0, 'threshold', y_pred_uniq)
+
+                        # write FPR, FNR, etc to dataframe
+                        for i in range(len(fpr_fnr_labels)):
+                            df_conf_m[fpr_fnr_labels[i]] = fpr_fnr_etc[:, i]
+
+                        # find optimal threshold
+                        # argmin(|FPR - FNR|)
+                        ind_min1 = np.argmin(np.abs(fpr_fnr_etc[:, 0] - fpr_fnr_etc[:, 1]))
+                        # argmin(FPR + FNR)
+                        ind_min2 = np.argmin(fpr_fnr_etc[:, 5])
+
+                        # write text to pdf
+                        Np = np.count_nonzero(y_labels_col)
+                        Nn = len(y_labels_col) - Np
+                        text = ('labels[' + str(l) + '] = ' + mlb.classes_[l]
+                                + '\ntrain folds: Np = ' + str(Np) + ', Nn = ' + str(Nn)
+                                + '\n\nmin(|FPR - FNR|): thr1 = {:.6f}'.format(y_pred_uniq[ind_min1])
+                                + ', FPR1 = {:.4f}, FNR1 = {:.4f}'.format(fpr_fnr_etc[ind_min1, 0], fpr_fnr_etc[ind_min1, 1])
+                                + '\nmin(FPR + FNR): thr2 = {:.6f}'.format(y_pred_uniq[ind_min2])
+                                + ', FPR2 = {:.4f}, FNR2 = {:.4f}'.format(fpr_fnr_etc[ind_min2, 0], fpr_fnr_etc[ind_min2, 1]))
+
+                        # write graph to pdf
+                        utils.build_graph(pdf, y_pred_uniq, fpr_fnr_etc, fpr_fnr_labels, text)
+
+                        if self.save_eval_txt:
+                            conf_m_dfs.append(df_conf_m)
+
+                if self.save_eval_txt:
+                    df_conf_m_res = pd.concat(conf_m_dfs, keys = label_inds, names = ['label', 'i'])
+                    df_conf_m_res.to_csv(path_conf + '.csv', ';', decimal = ',')
 
             else:
                 # effectiveness evaluation
-                beta1 = 2 # Fbeta parameter
-                beta2 = 2 # Gbeta parameter
+                #beta1 = 2 # Fbeta parameter
+                #beta2 = 2 # Gbeta parameter
                 #if self.data_name == 'ICBEB':
                 # compute classwise thresholds such that recall-focused Fbeta is optimized
-                thresholds_Fbeta = utils.find_optimal_cutoff_thresholds_for_Fbeta(y_labels['train'], y_preds['train'], beta1) # y_train, y_train_pred
+                #thresholds_Fbeta = utils.find_optimal_cutoff_thresholds_for_Fbeta(y_labels['train'], y_preds['train'], beta1) # y_train, y_train_pred
                 # compute classwise thresholds such that recall-focused Gbeta is optimized
                 #thresholds_Gbeta = utils.find_optimal_cutoff_thresholds_for_Gbeta(y_labels['train'], y_preds['train'], beta2) # y_train, y_train_pred
                 #else:
