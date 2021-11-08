@@ -11,6 +11,7 @@ import wfdb
 import ast
 from sklearn.metrics import fbeta_score, roc_auc_score, roc_curve, roc_curve, auc
 from sklearn.preprocessing import StandardScaler, MultiLabelBinarizer
+import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.axes._axes import _log as matplotlib_axes_logger
@@ -99,6 +100,7 @@ def conf_matrix(y_true, y_pred):
 
 # build graph
 def build_graph(pdf, y_pred, fpr_fnr_etc, fpr_fnr_labels, text):
+    matplotlib.use('agg') # due to this memory leakage problem was solved
 
     mm = 1.0 / 25.4  # milimeters in inches
     fig, (ax_txt, ax1, ax2) = plt.subplots(nrows = 3, ncols = 1, figsize = (160*mm, 296.97*mm), gridspec_kw = {'height_ratios': [1, 10, 10]})
@@ -107,15 +109,19 @@ def build_graph(pdf, y_pred, fpr_fnr_etc, fpr_fnr_labels, text):
     ax_txt.axis('off')
     ax_txt.text(0.5, 0.0, text, size = 12, ha = 'center')
 
+    y_up_lim = np.max(y_pred)
+    if y_up_lim > 1.0:
+        y_up_lim = 1.0
     # main graph
     for i in range(len(fpr_fnr_labels)):
         ax1.plot(y_pred, fpr_fnr_etc[:, i], label = fpr_fnr_labels[i], linewidth = 1.0)
-    ax1.set_xlim(0.0, 1.0)
+    ax1.set_xlim(0.0, y_up_lim)
     ax1.set_ylim(0.0, 1.0)
     ax1.set(xlabel = 'threshold', ylabel = 'FPR, FNR, etc', title = 'FPR, FNR, etc')
     ax1.legend(loc = 'center right')
     ticks = np.linspace(0.0, 1.0, 11)
-    ax1.set_xticks(ticks)
+    if int(np.ceil(10.0 * y_up_lim)) == 10:
+        ax1.set_xticks(ticks)
     ax1.set_yticks(ticks)
     #ax1.minorticks_on()
     ax1.grid(True, which = 'major', linestyle = '--')
@@ -129,8 +135,10 @@ def build_graph(pdf, y_pred, fpr_fnr_etc, fpr_fnr_labels, text):
     ax2.set_xticks(ticks)
     ax2.set_yticks(ticks)
     ax2.grid(True, which = 'major', linestyle = '--')
+
     plt.tight_layout()
     pdf.savefig()
+    fig.clf()
     plt.close()
 
 def challenge_metrics(y_true, y_pred, beta1 = 2, beta2 = 2, class_weights = None, single = False):
