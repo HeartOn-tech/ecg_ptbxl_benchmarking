@@ -6,7 +6,7 @@ import multiprocessing
 from itertools import repeat
 from sklearn import metrics
 from utils import utils
-from matplotlib.backends.backend_pdf import PdfPages
+from utils import evaluate
 
 class SCP_Experiment():
     '''
@@ -27,7 +27,8 @@ class SCP_Experiment():
                  test_fold = 10,
                  folds_type = 'strat',
                  mode = 'predict',
-                 save_eval_txt = False):
+                 use_train_valid_for_thr = True,
+                 save_eval_raw_txt = False):
         self.models = models
         self.min_samples = min_samples
         self.task = task
@@ -41,7 +42,8 @@ class SCP_Experiment():
         self.sampling_frequency = sampling_frequency
         self.data_name = data_name
         self.mode = mode
-        self.save_eval_txt = save_eval_txt # save output csv files - True/False
+        self.use_train_valid_for_thr = use_train_valid_for_thr # True: use train and valid for threshold evaluation, False: use train only for threshold evaluation
+        self.save_eval_raw_txt = save_eval_raw_txt # save output csv files - True/False
 
         # create folder structure if needed
         exp_folder = os.path.join(self.outputfolder, self.experiment_name)
@@ -139,7 +141,7 @@ class SCP_Experiment():
             else:
                 assert(True)
                 break
-
+    
             # fit model
             if self.mode in ['fit', 'finetune']:
                 model.fit(self.X_train, self.y_train, self.X_val, self.y_val)
@@ -172,159 +174,81 @@ class SCP_Experiment():
 
     def evaluate(self, n_bootstraping_samples=100, n_jobs=20, bootstrap_eval=False, dumped_bootstraps=True, data_types = ['test']):
 
-        # data types for processing
-        #data_types_ext = [data_type for data_type in data_types]
-        #if not 'train' in data_types_ext:
-        #    data_types_ext.insert(0, 'train')
-        data_types_ext = ['train', 'valid', 'test']
-
-        data_folder = os.path.join(self.outputfolder, self.experiment_name, 'data')
-        # load MultiLabelBinarizer object
-        with open(os.path.join(data_folder, 'mlb.pkl'), 'rb') as tokenizer:
-            mlb = pickle.load(tokenizer)
-
-        # load actual class labels
-        y_labels = {}
-        for data_type in data_types_ext:
-            name = utils.data_type_to_name(data_type)
-            y_labels[data_type] = np.load(os.path.join(data_folder, 'y_' + name + '.npy'), allow_pickle = True)
-
         # if bootstrapping then generate appropriate samples for each
-        if bootstrap_eval:
-            sample_inds = {}
-            if not dumped_bootstraps:
-                for data_type in data_types:
-                    sample_inds[data_type] = np.array(utils.get_appropriate_bootstrap_samples(y_labels[data_type], n_bootstraping_samples))
-                    # store samples for future evaluations
-                    name = utils.data_type_to_name(data_type)
-                    sample_inds[data_type].dump(self.outputfolder + self.experiment_name + '/' + name + '_bootstrap_ids.npy')
-            else:
-                for data_type in data_types:
-                    name = utils.data_type_to_name(data_type)
-                    sample_inds[data_type] = np.load(self.outputfolder + self.experiment_name + '/' + name + '_bootstrap_ids.npy', allow_pickle=True)
+        #if bootstrap_eval:
+        #    sample_inds = {}
+        #    if not dumped_bootstraps:
+        #        for data_type in data_types:
+        #            sample_inds[data_type] = np.array(utils.get_appropriate_bootstrap_samples(y_labels[data_type], n_bootstraping_samples))
+        #            # store samples for future evaluations
+        #            name = utils.data_type_to_name(data_type)
+        #            sample_inds[data_type].dump(self.outputfolder + self.experiment_name + '/' + name + '_bootstrap_ids.npy')
+        #    else:
+        #        for data_type in data_types:
+        #            name = utils.data_type_to_name(data_type)
+        #            sample_inds[data_type] = np.load(self.outputfolder + self.experiment_name + '/' + name + '_bootstrap_ids.npy', allow_pickle=True)
         #else:
         #    sample_inds['train'] = np.array([range(len(y_labels['train']))]) # y_train
         #    sample_inds['val'] = np.array([range(len(y_labels['val']))]) # y_val
         #    sample_inds['test'] = np.array([range(len(y_labels['test']))]) # y_test
 
-        label_inds = range(y_labels['train'].shape[1])
+        #if self.mode == 'estim':
+        # create Evaluation object
+        #self.use_train_valid_for_thr = False
 
-        # iterate over all models fitted so far
-        for m in sorted(os.listdir(self.outputfolder + self.experiment_name + '/models')):
-            #if m != 'fastai_xresnet1d101':
-            #    continue
-            print('evaluate(): data_name:', self.data_name, ', exp:', self.experiment_name, ', model:', m)
-            mpath = self.outputfolder + self.experiment_name + '/models/' + m + '/'
-            rpath = self.outputfolder + self.experiment_name + '/models/' + m + '/results/'
+        eval_obj = evaluate.Evaluation(self.outputfolder,
+                                       self.experiment_name,
+                                       self.data_name,
+                                       use_train_valid_for_thr = self.use_train_valid_for_thr,
+                                       save_eval_raw_txt = self.save_eval_raw_txt)
 
-            # load predictions
-            y_preds = {}
-            for data_type in data_types_ext:
-                name = utils.data_type_to_name(data_type)
-                y_preds[data_type] = np.load(mpath + 'y_' + name + '_pred.npy', allow_pickle=True)
+        # calc evaluation results for base data with threshold evaluation
+        # and evaluation results for test or valid and test data
+        eval_obj.challenge_metrics_models()
 
-            if self.mode == 'estim':
-                # thresholds estimation
-                path_conf = rpath + 'train' + '_conf_mat'
 
-                # for current pdf file
-                with PdfPages(path_conf + '.pdf') as pdf:
-                    conf_m_dfs = [] # conf matricies
+        # effectiveness evaluation
+        #beta1 = 2 # Fbeta parameter
+        #beta2 = 2 # Gbeta parameter
+        #if self.data_name == 'ICBEB':
+        # compute classwise thresholds such that recall-focused Fbeta is optimized
+        #thresholds_Fbeta = utils.find_optimal_cutoff_thresholds_for_Fbeta(y_labels['train'], y_preds['train'], beta1) # y_train, y_train_pred
+        # compute classwise thresholds such that recall-focused Gbeta is optimized
+        #thresholds_Gbeta = utils.find_optimal_cutoff_thresholds_for_Gbeta(y_labels['train'], y_preds['train'], beta2) # y_train, y_train_pred
+        #else:
+        #    thresholds = None
 
-                    # cycle by labels (columns)
-                    for l in label_inds: # [0]
-                        y_labels_col = y_labels['train'][:, l]
-                        y_preds_col = y_preds['train'][:, l]
+        #pool = multiprocessing.Pool(n_jobs)
 
-                        # tp, fp, tn, fn
-                        conf_m, y_pred_uniq = utils.conf_matrix(y_labels_col, y_preds_col)
-                        fpr_fnr_etc = np.zeros((len(y_pred_uniq), 7), dtype = float)
-                        fpr_fnr_labels = ['FPR', 'FNR', 'TPR', 'TNR', 'PPV', 'FPR+FNR', 'J=TPR+TNR-1']
-                        fpr_fnr_etc[:, 0] = conf_m[:, 1] / (conf_m[:, 1] + conf_m[:, 2]) # FPR = fp / (fp + tn)
-                        fpr_fnr_etc[:, 1] = conf_m[:, 3] / (conf_m[:, 0] + conf_m[:, 3]) # FNR = fn / (fn + tp)
-                        fpr_fnr_etc[:, 2] = 1.0 - fpr_fnr_etc[:, 1] # TPR = 1 - FNR
-                        fpr_fnr_etc[:, 3] = 1.0 - fpr_fnr_etc[:, 0] # TNR = 1 - FPR
-                        fpr_fnr_etc[:, 4] = conf_m[:, 0] / (conf_m[:, 0] + conf_m[:, 1]) # PPV = tp / (tp + fp)
-                        fpr_fnr_etc[:, 5] = fpr_fnr_etc[:, 0] + fpr_fnr_etc[:, 1] # FPR + FNR
-                        fpr_fnr_etc[:, 6] = fpr_fnr_etc[:, 2] + fpr_fnr_etc[:, 3] - 1.0 # J = TPR + TNR - 1
+        #for key in y_labels.keys():
+        #    print('generate_results(), data_type = ', key)
+        #    # all samples
+        #    df_point = utils.generate_results(range(len(y_labels[key])), y_labels[key], y_preds[key], # range(len(y_test)), y_test, y_test_pred, thresholds
+        #        thresholds_Fbeta, thresholds_Gbeta, beta1, beta2)
 
-                        # write to dataframe
-                        df_conf_m = pd.DataFrame(conf_m, columns = ['tp', 'fp', 'tn', 'fn'])
-                        df_conf_m.insert(0, 'threshold', y_pred_uniq)
+        #    if bootstrap_eval:
+        #        df = pd.concat(pool.starmap(utils.generate_results, zip(sample_inds[key], repeat(y_labels[key]), repeat(y_preds[key]), # test_samples, repeat(y_test), repeat(y_test_pred)
+        #            repeat(thresholds_Fbeta), repeat(thresholds_Fbeta), repeat(beta1), repeat(beta2))))
 
-                        # write FPR, FNR, etc to dataframe
-                        for i in range(len(fpr_fnr_labels)):
-                            df_conf_m[fpr_fnr_labels[i]] = fpr_fnr_etc[:, i]
+        #        df_result = pd.DataFrame(
+        #            np.array([
+        #                df_point.values[0],
+        #                df.mean().values,
+        #                df.quantile(0.05).values,
+        #                df.quantile(0.95).values]), 
+        #            columns = df.columns, 
+        #            index = ['point', 'mean', 'lower', 'upper'])
+        #    else:
+        #        df_result = pd.DataFrame(
+        #            df_point.values,
+        #            columns = df_point.columns,
+        #            index = ['point'])
 
-                        # find optimal threshold
-                        # argmin(|FPR - FNR|)
-                        ind_min1 = np.argmin(np.abs(fpr_fnr_etc[:, 0] - fpr_fnr_etc[:, 1]))
-                        # argmin(FPR + FNR)
-                        ind_min2 = np.argmin(fpr_fnr_etc[:, 5])
+        #    # dump results
+        #    df_result.to_csv(rpath + key + '_results' + '.csv')
 
-                        # write text to pdf
-                        Np = np.count_nonzero(y_labels_col)
-                        Nn = len(y_labels_col) - Np
-                        text = ('labels[' + str(l) + '] = ' + mlb.classes_[l]
-                                + '\ntrain folds: Np = ' + str(Np) + ', Nn = ' + str(Nn)
-                                + '\n\nmin(|FPR - FNR|): thr1 = {:.6f}'.format(y_pred_uniq[ind_min1])
-                                + ', FPR1 = {:.4f}, FNR1 = {:.4f}'.format(fpr_fnr_etc[ind_min1, 0], fpr_fnr_etc[ind_min1, 1])
-                                + '\nmin(FPR + FNR): thr2 = {:.6f}'.format(y_pred_uniq[ind_min2])
-                                + ', FPR2 = {:.4f}, FNR2 = {:.4f}'.format(fpr_fnr_etc[ind_min2, 0], fpr_fnr_etc[ind_min2, 1]))
+        #pool.close()
 
-                        # write graph to pdf
-                        utils.build_graph(pdf, y_pred_uniq, fpr_fnr_etc, fpr_fnr_labels, text)
-
-                        if self.save_eval_txt:
-                            conf_m_dfs.append(df_conf_m)
-
-                if self.save_eval_txt:
-                    df_conf_m_res = pd.concat(conf_m_dfs, keys = label_inds, names = ['label', 'i'])
-                    df_conf_m_res.to_csv(path_conf + '.csv', ';', decimal = ',')
-
-            else:
-                # effectiveness evaluation
-                #beta1 = 2 # Fbeta parameter
-                #beta2 = 2 # Gbeta parameter
-                #if self.data_name == 'ICBEB':
-                # compute classwise thresholds such that recall-focused Fbeta is optimized
-                #thresholds_Fbeta = utils.find_optimal_cutoff_thresholds_for_Fbeta(y_labels['train'], y_preds['train'], beta1) # y_train, y_train_pred
-                # compute classwise thresholds such that recall-focused Gbeta is optimized
-                #thresholds_Gbeta = utils.find_optimal_cutoff_thresholds_for_Gbeta(y_labels['train'], y_preds['train'], beta2) # y_train, y_train_pred
-                #else:
-                #    thresholds = None
-
-                pool = multiprocessing.Pool(n_jobs)
-
-                for key in y_labels.keys():
-                    print('generate_results(), data_type = ', key)
-                    # all samples
-                    df_point = utils.generate_results(range(len(y_labels[key])), y_labels[key], y_preds[key], # range(len(y_test)), y_test, y_test_pred, thresholds
-                        thresholds_Fbeta, thresholds_Gbeta, beta1, beta2)
-
-                    if bootstrap_eval:
-                        df = pd.concat(pool.starmap(utils.generate_results, zip(sample_inds[key], repeat(y_labels[key]), repeat(y_preds[key]), # test_samples, repeat(y_test), repeat(y_test_pred)
-                            repeat(thresholds_Fbeta), repeat(thresholds_Fbeta), repeat(beta1), repeat(beta2))))
-
-                        df_result = pd.DataFrame(
-                            np.array([
-                                df_point.values[0],
-                                df.mean().values,
-                                df.quantile(0.05).values,
-                                df.quantile(0.95).values]), 
-                            columns = df.columns, 
-                            index = ['point', 'mean', 'lower', 'upper'])
-                    else:
-                        df_result = pd.DataFrame(
-                            df_point.values,
-                            columns = df_point.columns,
-                            index = ['point'])
-
-                    # dump results
-                    df_result.to_csv(rpath + key + '_results' + '.csv')
-
-                pool.close()
-
-                #tr_df_result.to_csv(rpath+'tr_results.csv')
-                #val_df_result.to_csv(rpath+'val_results.csv')
-                #te_df_result.to_csv(rpath+'te_results.csv')
+        #tr_df_result.to_csv(rpath+'tr_results.csv')
+        #val_df_result.to_csv(rpath+'val_results.csv')
+        #te_df_result.to_csv(rpath+'te_results.csv')

@@ -43,104 +43,6 @@ def evaluate_experiment(y_true, y_pred, thresholds_Fbeta, thresholds_Gbeta, beta
     df_result = pd.DataFrame(results, index=[0])
     return df_result
 
-# calc conf matrix for unique sorted thresholds
-def conf_matrix(y_true, y_pred):
-    inds = np.argsort(y_pred)
-    y_pred_uniq = np.unique(y_pred[inds]) # return_index = True
-    #inds = range(len(y_pred_uniq))
-    out = np.zeros((len(y_pred_uniq), 4), dtype = int) # array by y_th and TP, FP, TN, FN
-
-    # TP, FP
-    first_it = True
-    i_prev = inds[-1]
-    j = len(y_pred_uniq) # out[j]
-    TP_tmp = 0
-    FP_tmp = 0
-
-    for i in inds[::-1]: # y_true[i], y_pred[i]
-
-        if y_true[i]: # y_true[i] = 1
-            TP_tmp += 1 # TP
-        else: # y_true[i] = 0
-            FP_tmp += 1 # FP
-
-        if first_it or y_pred[i] != y_pred[i_prev]: # new out elem
-            j -= 1
-            if first_it:
-                first_it = False
-
-        out[j][0] = TP_tmp
-        out[j][1] = FP_tmp
-        # print('j = ', j, 'y_pred[i] = ', y_pred[i], ', i = ', i, 'i_prev = ', i_prev)
-
-        i_prev = i
-
-    # TN, FN
-    i_prev = inds[0]
-    j = 0 # out[j]
-    TN_tmp = 0
-    FN_tmp = 0
-
-    for i in inds[1:]: # y_true[i], y_pred[i]
-
-        if not y_true[i_prev]: # y_true[i-1] = 0
-            TN_tmp += 1 # TN
-        else:
-            FN_tmp += 1 # FN
-
-        if y_pred[i] != y_pred[i_prev]: # new out elem
-            j += 1
-            out[j][2] = TN_tmp
-            out[j][3] = FN_tmp
-        # print('j = ', j, 'y_pred[i] = ', y_pred[i], ', i = ', i, 'i_prev = ', i_prev)
-
-        i_prev = i
-
-    return out, y_pred_uniq
-
-# build graph
-def build_graph(pdf, y_pred, fpr_fnr_etc, fpr_fnr_labels, text):
-    matplotlib.use('agg') # due to this memory leakage problem was solved
-
-    mm = 1.0 / 25.4  # milimeters in inches
-    fig, (ax_txt, ax1, ax2) = plt.subplots(nrows = 3, ncols = 1, figsize = (160*mm, 296.97*mm), gridspec_kw = {'height_ratios': [1, 10, 10]})
-
-    # text graph
-    ax_txt.axis('off')
-    ax_txt.text(0.5, 0.0, text, size = 12, ha = 'center')
-
-    y_up_lim = np.max(y_pred)
-    if y_up_lim > 1.0:
-        y_up_lim = 1.0
-    # main graph
-    for i in range(len(fpr_fnr_labels)):
-        ax1.plot(y_pred, fpr_fnr_etc[:, i], label = fpr_fnr_labels[i], linewidth = 1.0)
-    ax1.set_xlim(0.0, y_up_lim)
-    ax1.set_ylim(0.0, 1.0)
-    ax1.set(xlabel = 'threshold', ylabel = 'FPR, FNR, etc', title = 'FPR, FNR, etc')
-    ax1.legend(loc = 'center right')
-    ticks = np.linspace(0.0, 1.0, 11)
-    if int(np.ceil(10.0 * y_up_lim)) == 10:
-        ax1.set_xticks(ticks)
-    ax1.set_yticks(ticks)
-    #ax1.minorticks_on()
-    ax1.grid(True, which = 'major', linestyle = '--')
-    #ax1.grid(True, which = 'minor', linestyle = '--')
-
-    # ROC graph
-    ax2.plot(fpr_fnr_etc[:, 0], fpr_fnr_etc[:, 2], label = 'ROC', linewidth = 1.0)
-    ax2.set_xlim(0.0, 1.0)
-    ax2.set_ylim(0.0, 1.0)
-    ax2.set(xlabel = fpr_fnr_labels[0], ylabel = fpr_fnr_labels[2], title = 'ROC')
-    ax2.set_xticks(ticks)
-    ax2.set_yticks(ticks)
-    ax2.grid(True, which = 'major', linestyle = '--')
-
-    plt.tight_layout()
-    pdf.savefig()
-    fig.clf()
-    plt.close()
-
 def challenge_metrics(y_true, y_pred, beta1 = 2, beta2 = 2, class_weights = None, single = False):
     f_beta = 0
     g_beta = 0
@@ -451,13 +353,6 @@ def apply_standardizer(X, ss):
         X_tmp.append(ss.transform(x.flatten()[:,np.newaxis]).reshape(x_shape))
     X_tmp = np.array(X_tmp)
     return X_tmp
-
-def data_type_to_name(data_type):
-    if data_type == 'valid':
-        name = 'val'
-    else:
-        name = data_type
-    return name
 
 # DOCUMENTATION STUFF
 def exp_table(exp, folder, selection, data_type):
