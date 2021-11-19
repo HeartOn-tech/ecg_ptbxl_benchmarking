@@ -89,13 +89,16 @@ class Evaluation:
         if self.use_train_valid_for_thr:
             self.y_labels_thr = np.concatenate((self.y_labels_dict[self.data_types_ext[0]], self.y_labels_dict[self.data_types_ext[1]]), axis = 0) # 'train' & 'valid'
             self.data_type_name = self.data_types_ext[0] + '_' + self.data_types_ext[1]
+            self.data_type_suffix = '_' + self.data_types_ext[0][0] + '_' + self.data_types_ext[1][0]
         else:
             self.y_labels_thr = self.y_labels_dict[self.data_types_ext[0]] # 'train'
             self.data_type_name = self.data_types_ext[0]
+            self.data_type_suffix = '_' + self.data_types_ext[0][0]
+        self.data_type_name_thr = self.data_type_name + '_thr'
 
         self.N_labels = self.y_labels_thr.shape[1]
-        self.N_samples = self.y_labels_thr.shape[0]
         self.label_inds = range(self.N_labels)
+        #self.N_samples = self.y_labels_thr.shape[0]
 
     # create head of table for model results
     def create_table(self, model_txt):
@@ -271,7 +274,7 @@ class Evaluation:
         # create df_res_table
         df_res_table = self.create_table(model_txt)
 
-        path_conf_m_table = rpath + self.data_type_name + '_conf_mat'
+        path_conf_m_table = rpath + self.data_type_name_thr + '_conf_mat'
 
         # for current pdf file
         with PdfPages(path_conf_m_table + '.pdf') as pdf:
@@ -309,7 +312,7 @@ class Evaluation:
 
                 # write text to pdf
                 Np = np.count_nonzero(y_labels_col)
-                Nn = len(y_labels_col) - Np
+                Nn = self.y_labels_thr.shape[0] - Np
 
                 values = [str(Np),
                           str(Nn),
@@ -372,7 +375,7 @@ class Evaluation:
         roc_auc = np.zeros((self.N_labels, 1), dtype = float)
         for l in self.label_inds: # loop for labels
             Np_Nn[l, 0] = np.count_nonzero(y_labels[:, l]) # Np np.sum(conf_matr_thr[l, 1, :])
-            Np_Nn[l, 1] = self.N_samples - Np_Nn[l, 0]     # Nn np.sum(conf_matr_thr[l, 0, :])
+            Np_Nn[l, 1] = y_labels.shape[0] - Np_Nn[l, 0]     # Nn np.sum(conf_matr_thr[l, 0, :])
             roc_auc[l, 0] = metrics.roc_auc_score(y_labels[:, l], y_preds[:, l]) # ROC AUC
 
         # write values to table
@@ -451,7 +454,7 @@ class Evaluation:
             # calc roc_auc, fpr, fnr and build graphs and thresholds estimation
             df_res_table_thr, df_mean_res_thr = self.challenge_metrics_thr(y_preds_thr, rpath, model_txt)
             res_table_list_thr.append(df_res_table_thr)
-            df_mean_res_thr.to_csv(rpath + self.data_type_name + '_thr' + '_results2' + '.csv')
+            df_mean_res_thr.to_csv(rpath + self.data_type_name_thr + '_results' + '.csv')
 
             # get threshold values
             thr_arr = np.zeros((self.N_thrs, self.N_labels), dtype = float)
@@ -463,12 +466,12 @@ class Evaluation:
             for data_type in data_types_estim:
                 df_res_table, df_mean_res = self.challenge_metrics(self.y_labels_dict[data_type], y_preds_dict[data_type], thr_arr, model_txt)
                 res_table_list[data_type].append(df_res_table)
-                df_mean_res.to_csv(rpath + data_type + '_results2' + '.csv')
+                df_mean_res.to_csv(rpath + data_type + self.data_type_suffix + '_results' + '.csv')
 
         # form tables and save to txt
         cc_df_res_table_thr = pd.concat(res_table_list_thr, ignore_index = True)
-        cc_df_res_table_thr.to_csv(os.path.join(self.results_folder, self.data_type_name + '_thr' + '.csv'), ';', index = False, decimal = ',')
+        cc_df_res_table_thr.to_csv(os.path.join(self.results_folder, self.data_type_name_thr + '.csv'), ';', index = False, decimal = ',')
 
         for data_type in data_types_estim:
             cc_df_res_table = pd.concat(res_table_list[data_type], ignore_index = True)
-            cc_df_res_table.to_csv(os.path.join(self.results_folder, data_type + '.csv'), ';', index = False, decimal = ',')
+            cc_df_res_table.to_csv(os.path.join(self.results_folder, data_type + self.data_type_suffix + '.csv'), ';', index = False, decimal = ',')
