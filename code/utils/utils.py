@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.axes._axes import _log as matplotlib_axes_logger
 import warnings
+import locale
 
 # EVALUATION STUFF
 def generate_results(idxs, y_true, y_pred, thresholds_Fbeta = None, thresholds_Gbeta = None, beta1 = 2, beta2 = 2):
@@ -356,94 +357,138 @@ def apply_standardizer(X, ss):
 
 # DOCUMENTATION STUFF
 def exp_table(exp, folder, selection, data_type):
-    cols = ['macro_auc', 'F_beta_macro', 'G_beta_macro']
 
     if selection is None:
         #models = [m.split('_pretrained')[0] for m in glob.glob(os.path.join(folder, exp, 'models'))] # m.split('/')[-1].split('_pretrained')[0] '/models/*'
         models = os.listdir(os.path.join(folder, exp, 'models'))
     else:
         models = selection
-        #for s in selection:
-        #    models.append(s)
 
     data = []
+    models_out = []
+    cols = []
+
     for model in models:
         res_path = os.path.join(folder, exp, 'models', model, 'results', data_type + '_results.csv') # 'test_results.csv'
-        if os.path.isfile(res_path):
-            me_res = pd.read_csv(res_path, index_col=0)
-            mcol=[]
+
+        if os.path.isfile(res_path): # file is exist
+            me_res = pd.read_csv(res_path, index_col = 0)
+            me_res.rename(columns = lambda x: x.replace('macro_auc', 'ROCAUC'), inplace = True)
+
+            if cols: # cols are not empty
+                if me_res.columns.tolist() != cols:
+                    raise ValueError('Columns in current table are different!')
+            else: # cols are empty
+                cols = me_res.columns.tolist()
+
+            mcol = []
             for col in cols:
-                if col in me_res.columns:
-                    point = me_res.loc['point'][col]
-                    if set(['upper', 'lower']).issubset(me_res.index):
-                        #mean = me_res.loc['mean'][col]
-                        unc = max(me_res.loc['upper'][col] - point, point - me_res.loc['lower'][col])
-                        mcol.append("%.3f(%.2d)" %(np.round(point, 3), int(unc*1000)))
-                    else:
-                        mcol.append("%.3f" %(np.round(point, 3)))
+                point = me_res.loc['point', col]
+                if set(['upper', 'lower']).issubset(me_res.index):
+                    #mean = me_res.loc['mean', col]
+                    unc = max(me_res.loc['upper', col] - point, point - me_res.loc['lower', col])
+                    mcol.append(locale.format_string("%.4f(%.2d)", (point, int(unc*1000))))
+                else:
+                    mcol.append(locale.format_string("%.4f", point))
             data.append(mcol)
+            models_out.append(model)
 
-    data_array = np.array(data)
+    if data: # data are not empty
+        data_array = np.array(data)
+        df = pd.DataFrame(data_array, columns = cols, index = models_out)
+        df.index.name = 'Model'
+        df_index = df[df.index.isin(['naive', 'ensemble'])]
+        df_rest = df[~df.index.isin(['naive', 'ensemble'])]
+        df = pd.concat([df_rest, df_index])
+        df.reset_index(level = 0, inplace = True)
+    else: # data are empty
+        df = pd.DataFrame()
 
-    df = pd.DataFrame(data_array, columns = cols, index = models)
-    df_index = df[df.index.isin(['naive', 'ensemble'])]
-    df_rest = df[~df.index.isin(['naive', 'ensemble'])]
-    df = pd.concat([df_rest, df_index])
     return df
 
-def generate_ptbxl_summary_table(exps, folder, selection = None, data_type = 'test'):
+# helper output function for markdown tables
+def print_table(dfs, exps_out):
+    #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
+    #df_rest = df_rest.sort_values('macro_auc', ascending=False)
+    #df_rest = df
+    i_exp = 0
+    for i_df in range(1, len(dfs)):
+        df = dfs[i_df]
+        if df.loc[0, 'Model']: # value is not empty
+            #cols = [col for col in df.columns if col]
+            md_source = '\nexp = ' + exps_out[i_exp]
+            i_exp += 1
+            md_source += '\n'
+            # print column names
+            for i, col in enumerate(df.columns.values):
+                if i == 0:
+                    col = col.ljust(10)
+                else:
+                    md_source += '\t'
+                md_source += col
+            #md_source += ''
+
+            for ind in df.index:
+                #md_source += '\n| ' + df_rest.index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2]
+                md_source += '\n'
+                for i, val in enumerate(df.loc[ind]):
+                    if i == 0:
+                        val = val.replace('fastai_', '').ljust(10)
+                    else:
+                        md_source += '\t'
+                    md_source += val
+                #md_source += ''
+
+            #md_source += '\n'
+            print(md_source)
+
+def generate_summary_table(data_name, exps, folder, selection = None, file_types = []):
+    # set system local numeric prefences
+    locale.setlocale(locale.LC_NUMERIC, '')
+
     #exps = ['exp0', 'exp1', 'exp1.1', 'exp1.1.1', 'exp2', 'exp3']
-    #metric1 = 'macro_auc'
+    output_folder_name = os.path.normpath(folder).split(os.sep)[-1] # output folder name
+    df_cc_list = []
+    data_types_out = []
 
-    dfs = [] # dataframes related to experiments
-    for exp in exps:
-        dfs.append(exp_table(exp, folder, selection, data_type))
+    for data_type in file_types:
 
-    df = pd.concat(dfs, keys = exps)
-    df.to_csv(os.path.join(folder, data_type + '_results_ptbxl.csv'))
+        df_head = pd.DataFrame({'Model': ['Results: '
+                                          + 'output_folder: ' + output_folder_name + ', '
+                                          + 'data_name: ' + data_name,
+                                          'data_type:']})
+        dfs = [] # dataframes related to experiments
 
-    # helper output function for markdown tables
-    print('PTB_XL results, data_type = ' + data_type, end = '')
-    #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
-    #df_rest = df_rest.sort_values('macro_auc', ascending=False)
-    df_rest = df
-    cols = [col for col in df_rest.columns if col]
-    #our_work = 'https://arxiv.org/abs/2004.13701'
-    #our_repo = 'https://github.com/helme/ecg_ptbxl_benchmarking/'
-    md_head = '| Model ' # | AUC &darr; |  F_beta=2 | G_beta=2 | paper/source | code | \n'
-    for col in cols:
-        md_head += '| ' + col
-    md_head += ' |' # '|---:|:---|:---|:---|:---|:---|\n'
+        exps_out = []
+        for exp in exps:
+            df = exp_table(exp, folder, selection, data_type)
+            if not df.empty: # df is not empty
+                exps_out.append(exp)
+                if not dfs:  # dfs is empty
+                    df_head[df.columns[1]] = ['', data_type]
+                    dfs.append(df_head)
+                dfs.append(pd.DataFrame({'Model': ['', exp]}))
+                dfs.append(df)
 
-    md_source = ''
-    for exp in exps:
-        md_source += '\nexp = ' + exp
-        md_source += '\n' + md_head
-        for i, row in enumerate(df_rest.loc[exp, cols].values):
-            md_source += '\n| ' + df_rest.loc[exp].index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2] # + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
+        if not dfs: # dfs is empty
+            continue
 
-    md_source += '\n'
-    print(md_source)
+        df_cc = pd.concat(dfs, ignore_index = True)
+        #df_cc.to_csv(os.path.join(folder, data_type + '_results_' + data_name.lower() + '.csv'), ';', index = False) #, decimal = ','
 
-def ICBEBE_table(exp, folder, selection = None, data_type = 'test'):
-    df = exp_table(exp, folder, selection, data_type)
-    df.to_csv(os.path.join(folder, data_type + '_results_icbeb.csv'))
+        if df_cc_list: # df_cc_list is not empty
+            df_cc.drop('Model', axis = 'columns', inplace = True)
+        df_cc_list.append(df_cc)
+        data_types_out.append(data_type)
 
-    # helper output function for markdown tables
-    print('ICBEB results, data_type = ' + data_type)
-    #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
-    #df_rest = df_rest.sort_values('macro_auc', ascending=False)
-    df_rest = df
-    cols = [col for col in df_rest.columns if col]
-    #our_work = 'https://arxiv.org/abs/2004.13701'
-    #our_repo = 'https://github.com/helme/ecg_ptbxl_benchmarking/'
-    md_source = '| Model ' # | AUC &darr; |  F_beta=2 | G_beta=2 | paper/source | code | \n'
-    for col in cols:
-        md_source += '| ' + col
-    md_source += ' |' # '|---:|:---|:---|:---|:---|:---|\n'
+        print('\n==================================================================')
+        print(data_name + ' results, data_type = ' + data_type) #, end = ''
+        print_table(dfs, exps_out)
 
-    for i, row in enumerate(df_rest[cols].values):
-        md_source += '\n| ' + df_rest.index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2] # + ' | [our work]('+our_work+') | [this repo]('+our_repo+')| \n'
-
-    md_source += '\n'
-    print(md_source)
+    if df_cc_list: # df_cc_list is not empty
+        if len(df_cc_list) > 1:
+            d_types_str = 'united'
+        else: # len == 1
+            d_types_str = data_types_out[0]
+        df_cc_cols = pd.concat(df_cc_list, axis = 1)
+        df_cc_cols.to_csv(os.path.join(folder, d_types_str + '_results_' + data_name.lower() + '.csv'), ';', index = False) #, decimal = ','

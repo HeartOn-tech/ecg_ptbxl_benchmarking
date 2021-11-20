@@ -13,7 +13,7 @@ def main(record_base_path):
     outputfolder = '../output/'
     mode = 'estim'
                  # 'results' - только таблица результатов
-                 # 'estim' - только оценка эффективности моделей в зависимости от порога
+                 # 'estim' - только оценка эффективности моделей в зависимости от порога и таблица результатов
                  # 'eval' - только расчет оценок классификации по моделям,
                  # 'predict' - только выполнение предсказания по обученным моделям,
                  # 'fit' - выполнение обучения моделей,
@@ -33,6 +33,7 @@ def main(record_base_path):
     # STANDARD SCP EXPERIMENTS ON PTBXL
     ##########################################
     data_types = ['train', 'valid', 'test']
+    file_types = ['train_thr', 'train_valid_thr', 'test_t', 'valid_t', 'test_t_v']
 
     use_PTBXL = True
     if use_PTBXL:
@@ -58,9 +59,8 @@ def main(record_base_path):
                 e.evaluate(data_types = data_types)
 
         #generate greate summary table
-        if mode != 'estim':
-            for data_type in data_types:
-                utils.generate_ptbxl_summary_table(exps, outputfolder, None, data_type)
+        #if mode != 'estim':
+        utils.generate_summary_table(data_name, exps, outputfolder, None, file_types)
 
     ##########################################
     # EXPERIMENT BASED ICBEB DATA
@@ -79,9 +79,8 @@ def main(record_base_path):
             e.evaluate(data_types = data_types)
 
         # generate greate summary table
-        if mode != 'estim':
-            for data_type in data_types:
-                utils.ICBEBE_table(exp_name, outputfolder, None, data_type)
+        #if mode != 'estim':
+        utils.generate_summary_table(data_name, [exp_name], outputfolder, None, file_types)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
