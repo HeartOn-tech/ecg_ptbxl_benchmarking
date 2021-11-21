@@ -359,10 +359,11 @@ def apply_standardizer(X, ss):
 def exp_table(exp, folder, selection, data_type):
 
     if selection is None:
-        #models = [m.split('_pretrained')[0] for m in glob.glob(os.path.join(folder, exp, 'models'))] # m.split('/')[-1].split('_pretrained')[0] '/models/*'
-        models = os.listdir(os.path.join(folder, exp, 'models'))
+        models = sorted(os.listdir(os.path.join(folder, exp, 'models')), key = str.lower)
     else:
-        models = selection
+        models = sorted(selection, key = str.lower)
+    # move 'ensemble' and 'naive' to the end of list
+    models.sort(key = lambda s: s == 'ensemble' or s == 'naive')
 
     data = []
     models_out = []
@@ -397,9 +398,9 @@ def exp_table(exp, folder, selection, data_type):
         data_array = np.array(data)
         df = pd.DataFrame(data_array, columns = cols, index = models_out)
         df.index.name = 'Model'
-        df_index = df[df.index.isin(['naive', 'ensemble'])]
-        df_rest = df[~df.index.isin(['naive', 'ensemble'])]
-        df = pd.concat([df_rest, df_index])
+        #df_index = df[df.index.isin(['naive', 'ensemble'])]
+        #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
+        #df = pd.concat([df_rest, df_index])
         df.reset_index(level = 0, inplace = True)
     else: # data are empty
         df = pd.DataFrame()
@@ -442,7 +443,7 @@ def print_table(dfs, exps_out):
             #md_source += '\n'
             print(md_source)
 
-def generate_summary_table(data_name, exps, folder, selection = None, file_types = []):
+def generate_summary_table(data_name, exps, folder, selection = None, file_types = [], file_types_suffix = ''):
     # set system local numeric prefences
     locale.setlocale(locale.LC_NUMERIC, '')
 
@@ -474,10 +475,10 @@ def generate_summary_table(data_name, exps, folder, selection = None, file_types
             continue
 
         df_cc = pd.concat(dfs, ignore_index = True)
-        #df_cc.to_csv(os.path.join(folder, data_type + '_results_' + data_name.lower() + '.csv'), ';', index = False) #, decimal = ','
+        #df_cc.to_csv(os.path.join(folder, data_type + '_' + data_name.lower() + '_results' + '.csv'), ';', index = False) #, decimal = ','
 
         if df_cc_list: # df_cc_list is not empty
-            df_cc.drop('Model', axis = 'columns', inplace = True)
+            df_cc.drop(df_cc.columns[0], axis = 'columns', inplace = True) # drop 'Model' column
         df_cc_list.append(df_cc)
         data_types_out.append(data_type)
 
@@ -487,8 +488,8 @@ def generate_summary_table(data_name, exps, folder, selection = None, file_types
 
     if df_cc_list: # df_cc_list is not empty
         if len(df_cc_list) > 1:
-            d_types_str = 'united'
+            d_types_str = 'united_' + file_types_suffix
         else: # len == 1
             d_types_str = data_types_out[0]
-        df_cc_cols = pd.concat(df_cc_list, axis = 1)
-        df_cc_cols.to_csv(os.path.join(folder, d_types_str + '_results_' + data_name.lower() + '.csv'), ';', index = False) #, decimal = ','
+        df_cc_cols = pd.concat(df_cc_list, axis = 'columns')
+        df_cc_cols.to_csv(os.path.join(folder, d_types_str + '_' + data_name.lower() + '_results' + '.csv'), ';', index = False) #, decimal = ','

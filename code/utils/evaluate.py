@@ -51,7 +51,7 @@ class Evaluation:
                            ('label', str),
                            ('Np', str),
                            ('Nn', str),
-                           ('ROC AUC', float)]
+                           ('ROCAUC', float)]
 
         for k in range(self.N_thrs): # loop for N_thr
             str_num = str(k + 1)
@@ -90,10 +90,12 @@ class Evaluation:
             self.y_labels_thr = np.concatenate((self.y_labels_dict[self.data_types_ext[0]], self.y_labels_dict[self.data_types_ext[1]]), axis = 0) # 'train' & 'valid'
             self.data_type_name = self.data_types_ext[0] + '_' + self.data_types_ext[1]
             self.data_type_suffix = '_' + self.data_types_ext[0][0] + '_' + self.data_types_ext[1][0]
+            self.data_type_united = 'united' + self.data_type_suffix + '_thr_' + self.data_types_ext[2][0]
         else:
             self.y_labels_thr = self.y_labels_dict[self.data_types_ext[0]] # 'train'
             self.data_type_name = self.data_types_ext[0]
             self.data_type_suffix = '_' + self.data_types_ext[0][0]
+            self.data_type_united = 'united' + self.data_type_suffix + '_thr_' + self.data_types_ext[1][0] + '_' + self.data_types_ext[2][0]
         self.data_type_name_thr = self.data_type_name + '_thr'
 
         self.N_labels = self.y_labels_thr.shape[1]
@@ -112,7 +114,12 @@ class Evaluation:
     # create head of result table
     def create_res_table(self, data_type_name):
         # header table text
-        return pd.DataFrame({'label_i': ['Results: ' + self.out_text[0] + ', ' + self.data_exp_text + ', data_type: ' + data_type_name]})
+        return pd.DataFrame({'label_i': ['Results: '
+                                         + self.out_text[0] + ', '
+                                         + self.data_exp_text,
+                                         'data_type:'],
+                             'label': ['', ''],
+                             'Np': ['', data_type_name]})
 
     # calc conf matrix for unique sorted thresholds
     def conf_matrix(self, y_true, y_pred):
@@ -255,7 +262,7 @@ class Evaluation:
     # form output table
     def form_output_table(self, df_mean_res):
         index_names = df_mean_res.index.values
-        mean_dict = {'macro_auc': df_mean_res.loc[index_names[0]]} # 'ROC AUC'
+        mean_dict = {index_names[0]: df_mean_res.loc[index_names[0]]} # 'ROCAUC'
         for i in range(1, len(index_names)):
             name = index_names[i]
             if name[:3] == 'thr':
@@ -414,7 +421,7 @@ class Evaluation:
     # calc challenge metrics for models
     def challenge_metrics_models(self):
         # initialize lists of result tables
-        res_table_list_thr = [self.create_res_table(self.data_type_name)]
+        res_table_list_thr = [self.create_res_table(self.data_type_name_thr)]
 
         if self.use_train_valid_for_thr:
             data_types_estim = self.data_types_ext[2:] # 'test'
@@ -427,17 +434,20 @@ class Evaluation:
         for data_type in data_types_estim:
             res_table_list[data_type] = [self.create_res_table(data_type)]
 
-        sorted_dirs = sorted(os.listdir(self.output_folder + self.experiment_name + '/models'))
+        models = sorted(os.listdir(os.path.join(self.output_folder, self.experiment_name, 'models')), key = str.lower)
+        # move 'ensemble' and 'naive' to the end of list
+        models.sort(key = lambda s: s == 'ensemble' or s == 'naive')
+
         # iterate over all models fitted so far
-        for m in sorted_dirs:
-            #if m != 'fastai_xresnet1d101': # and m != 'fastai_resnet1d_wang'
+        for model in models:
+            #if model != 'fastai_xresnet1d101': # and model != 'fastai_resnet1d_wang'
             #    continue
 
-            model_txt = 'model: ' + m
+            model_txt = 'model: ' + model
             caption_text = 'evaluate(): ' + self.data_exp_text + ', ' + model_txt
             print(caption_text)
-            mpath = self.output_folder + self.experiment_name + '/models/' + m + '/'
-            rpath = self.output_folder + self.experiment_name + '/models/' + m + '/results/'
+            mpath = self.output_folder + self.experiment_name + '/models/' + model + '/'
+            rpath = self.output_folder + self.experiment_name + '/models/' + model + '/results/'
 
             # load predictions
             y_preds_dict = {}
@@ -466,12 +476,24 @@ class Evaluation:
             for data_type in data_types_estim:
                 df_res_table, df_mean_res = self.challenge_metrics(self.y_labels_dict[data_type], y_preds_dict[data_type], thr_arr, model_txt)
                 res_table_list[data_type].append(df_res_table)
-                df_mean_res.to_csv(rpath + data_type + self.data_type_suffix + '_results' + '.csv')
+                df_mean_res.to_csv(os.path.join(rpath, data_type + self.data_type_suffix + '_results' + '.csv'))
 
         # form tables and save to txt
-        cc_df_res_table_thr = pd.concat(res_table_list_thr, ignore_index = True)
-        cc_df_res_table_thr.to_csv(os.path.join(self.results_folder, self.data_type_name_thr + '.csv'), ';', index = False, decimal = ',')
+        df_cc_res_table_thr = pd.concat(res_table_list_thr, ignore_index = True)
+        #df_cc_res_table_thr.to_csv(os.path.join(self.results_folder, self.data_type_name_thr + '_' + self.experiment_name.lower() + '_results' + '.csv'), ';', index = False, decimal = ',')
+        df_cc_list = [df_cc_res_table_thr]
 
         for data_type in data_types_estim:
-            cc_df_res_table = pd.concat(res_table_list[data_type], ignore_index = True)
-            cc_df_res_table.to_csv(os.path.join(self.results_folder, data_type + self.data_type_suffix + '.csv'), ';', index = False, decimal = ',')
+            df_cc_res_table = pd.concat(res_table_list[data_type], ignore_index = True)
+            #df_cc_res_table.to_csv(os.path.join(self.results_folder, data_type + self.data_type_suffix + '_' + self.experiment_name.lower() + '_results' + '.csv'), ';', index = False, decimal = ',')
+            df_cc_res_table.drop(df_cc_res_table.columns[0:2], axis = 'columns', inplace = True)
+            df_cc_res_table.drop(df_cc_res_table.columns[df_cc_res_table.columns.str[0:3] == 'thr'], axis = 'columns', inplace = True)
+            df_cc_list.append(df_cc_res_table)
+
+        if df_cc_list: # df_cc_list is not empty
+            if len(df_cc_list) > 1:
+                d_types_str = self.data_type_united
+            else: # len == 1
+                d_types_str = self.data_type_name_thr
+            df_cc_cols = pd.concat(df_cc_list, axis = 'columns')
+            df_cc_cols.to_csv(os.path.join(self.results_folder, d_types_str + '_' + self.experiment_name.lower() + '_results' + '.csv'), ';', index = False, decimal = ',')

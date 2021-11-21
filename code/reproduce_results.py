@@ -29,13 +29,25 @@ def main(record_base_path):
         conf_wavelet_standard_nn
         ]
 
+    # Data set
+    # use_train_valid_for_thr: True: use train and valid data for threshold evaluation, False: use train data only for threshold evaluation
+    use_train_valid_for_thr = False
+    # save output csv files with raw data (by labels) - True/False
+    save_eval_raw_txt = False
+    data_types = ['train', 'valid', 'test']
+
+    if use_train_valid_for_thr: # base: train & valid, estim: test
+        file_types = ['train_valid_thr', 'test_t_v']
+        file_types_suffix = 't_v_thr_t'
+    else:                       # base: train, estim: valid, test
+        file_types = ['train_thr', 'valid_t', 'test_t']
+        file_types_suffix = 't_thr_v_t'
+
     ##########################################
     # STANDARD SCP EXPERIMENTS ON PTBXL
     ##########################################
-    data_types = ['train', 'valid', 'test']
-    file_types = ['train_thr', 'train_valid_thr', 'test_t', 'valid_t', 'test_t_v']
-
     use_PTBXL = True
+
     if use_PTBXL:
         data_name = 'ptbxl'
         experiments = [
@@ -52,35 +64,66 @@ def main(record_base_path):
             exps.append(exp_name)
 
             if mode != 'results':
-                e = SCP_Experiment(data_name, exp_name, task, datafolder_ptbxl, outputfolder, models, mode = mode)
+                e = SCP_Experiment(data_name,
+                                   exp_name,
+                                   task,
+                                   datafolder_ptbxl,
+                                   outputfolder,
+                                   models,
+                                   mode = mode,
+                                   use_train_valid_for_thr = use_train_valid_for_thr,
+                                   save_eval_raw_txt = save_eval_raw_txt)
+
                 if mode != 'eval' and mode != 'estim':
                     e.prepare()
                     e.perform()
+
                 e.evaluate(data_types = data_types)
 
         #generate greate summary table
         #if mode != 'estim':
-        utils.generate_summary_table(data_name, exps, outputfolder, None, file_types)
+        utils.generate_summary_table(data_name,
+                                     exps,
+                                     outputfolder,
+                                     None,
+                                     file_types,
+                                     file_types_suffix)
 
     ##########################################
     # EXPERIMENT BASED ICBEB DATA
     ##########################################
     use_ICBEB = True
+
     if use_ICBEB:
         data_name = 'ICBEB'
         exp_name = 'exp_ICBEB'
         task = 'all'
 
         if mode != 'results':
-            e = SCP_Experiment(data_name, exp_name, task, datafolder_icbeb, outputfolder, models, mode = mode)
+            e = SCP_Experiment(data_name,
+                               exp_name,
+                               task,
+                               datafolder_icbeb,
+                               outputfolder,
+                               models,
+                               mode = mode,
+                               use_train_valid_for_thr = use_train_valid_for_thr,
+                               save_eval_raw_txt = save_eval_raw_txt)
+
             if mode != 'eval' and mode != 'estim':
                 e.prepare()
                 e.perform()
+
             e.evaluate(data_types = data_types)
 
         # generate greate summary table
         #if mode != 'estim':
-        utils.generate_summary_table(data_name, [exp_name], outputfolder, None, file_types)
+        utils.generate_summary_table(data_name,
+                                     [exp_name],
+                                     outputfolder,
+                                     None,
+                                     file_types,
+                                     file_types_suffix)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
