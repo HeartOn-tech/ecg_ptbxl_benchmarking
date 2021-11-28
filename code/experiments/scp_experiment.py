@@ -27,8 +27,8 @@ class SCP_Experiment():
                  test_fold = 10,
                  folds_type = 'strat',
                  mode = 'predict',
-                 use_train_valid_for_thr = True,
-                 save_eval_raw_txt = False):
+                 eval_params = {}):
+
         self.models = models
         self.min_samples = min_samples
         self.task = task
@@ -42,8 +42,7 @@ class SCP_Experiment():
         self.sampling_frequency = sampling_frequency
         self.data_name = data_name
         self.mode = mode
-        self.use_train_valid_for_thr = use_train_valid_for_thr # True: use train and valid for threshold evaluation, False: use train only for threshold evaluation
-        self.save_eval_raw_txt = save_eval_raw_txt # save output csv files - True/False
+        self.eval_params = eval_params # evaluation module additional options
 
         # create folder structure if needed
         exp_folder = os.path.join(self.outputfolder, self.experiment_name)
@@ -64,8 +63,11 @@ class SCP_Experiment():
         self.labels = utils.compute_label_aggregations(self.raw_labels, self.datafolder, self.task)
 
         # Select relevant data and convert to one-hot
-        self.data, self.labels, self.Y, _ = utils.select_data(self.data, self.labels, self.task, self.min_samples, self.outputfolder+self.experiment_name+'/data/')
+        self.data, self.labels, self.Y, _ = utils.select_data(self.data, self.labels, self.task, self.min_samples, self.outputfolder+self.experiment_name+'/data/', self.eval_params['save_mlb_file'])
         self.input_shape = self.data[0].shape
+
+        if self.mode == 'eval':
+            return
         
         # 10th fold for testing (9th for now)
         self.X_test = self.data[self.labels.strat_fold == self.test_fold]
@@ -172,7 +174,11 @@ class SCP_Experiment():
         np.array(ensemble_val).mean(axis=0).dump(ensemblepath + 'y_val_pred.npy')
         np.array(ensemble_test).mean(axis=0).dump(ensemblepath + 'y_test_pred.npy')
 
-    def evaluate(self, n_bootstraping_samples=100, n_jobs=20, bootstrap_eval=False, dumped_bootstraps=True, data_types = ['test']):
+    def evaluate(self,
+                 n_bootstraping_samples = 100,
+                 n_jobs = 20,
+                 bootstrap_eval = False,
+                 dumped_bootstraps = True):
 
         # if bootstrapping then generate appropriate samples for each
         #if bootstrap_eval:
@@ -192,20 +198,18 @@ class SCP_Experiment():
         #    sample_inds['val'] = np.array([range(len(y_labels['val']))]) # y_val
         #    sample_inds['test'] = np.array([range(len(y_labels['test']))]) # y_test
 
-        #if self.mode == 'estim':
         # create Evaluation object
-        #self.use_train_valid_for_thr = False
-
         eval_obj = evaluate.Evaluation(self.outputfolder,
                                        self.experiment_name,
                                        self.data_name,
-                                       use_train_valid_for_thr = self.use_train_valid_for_thr,
-                                       save_eval_raw_txt = self.save_eval_raw_txt)
+                                       self.train_fold,
+                                       self.eval_params)
 
-        # calc evaluation results for base data with threshold evaluation
-        # and evaluation results for test or valid and test data
-        eval_obj.challenge_metrics_models()
-
+        # calc evaluation results for base data with threshold evaluation,
+        # evaluation results for test (or valid and test) data
+        # and for additional train folds
+        if eval_obj: # folder 'data' exists
+            eval_obj.challenge_metrics_models()
 
         # effectiveness evaluation
         #beta1 = 2 # Fbeta parameter

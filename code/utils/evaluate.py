@@ -28,24 +28,42 @@ class Evaluation:
                  outputfolder,
                  experiment_name,
                  data_name,
-                 N_thrs = 2,
-                 use_train_valid_for_thr = False,
-                 save_eval_raw_txt = False):
+                 train_fold_max,
+                 eval_params):
         # options
-        self.N_thrs = N_thrs # number of threshold criterion
-        self.use_train_valid_for_thr = use_train_valid_for_thr # True: use train and valid for threshold evaluation, False: use train only for threshold evaluation
-        self.save_eval_raw_txt = save_eval_raw_txt # save raw output csv files - True/False
+        self.eval_params = eval_params
+        self.data_types_ext = self.eval_params['data_types'] # data types for processing
+        self.N_thrs = self.eval_params['N_thrs'] # number of threshold criterion
+        self.use_train_valid_for_thr = self.eval_params['use_train_valid_for_thr'] # True: use train and valid for threshold evaluation, False: use train only for threshold evaluation
+
         # graph parameters
         self.mm = 1.0 / 25.4  # milimeters in inches
         self.figsize = (160.0 * self.mm, 296.97 * self.mm)
-        # data types for processing
-        self.data_types_ext = ['train', 'valid', 'test']
+
         # file paths
         self.output_folder = outputfolder
+        norm_output_folder = os.path.normpath(self.output_folder)
+        self.output_folder_name = norm_output_folder.split(os.sep)[-1] # output folder name
         self.experiment_name = experiment_name
-        self.data_folder = os.path.join(self.output_folder, self.experiment_name, 'data')
-        self.results_folder = os.path.join(self.output_folder, self.experiment_name, 'results')
-        self.output_folder_name = os.path.normpath(self.output_folder).split(os.sep)[-1] # output folder name
+        self.data_folder = os.path.join(norm_output_folder, self.experiment_name, 'data')
+        # output text
+        self.out_text = ['folder: ' + self.output_folder_name,
+                    'data_name: ' + data_name,
+                    'exp: ' + self.experiment_name]
+        self.data_exp_text = self.out_text[1] + ', ' + self.out_text[2]
+        self.evaluate_text = 'evaluate(): ' + self.data_exp_text
+
+        if not os.path.exists(self.data_folder): # folder does not exist
+            print(self.evaluate_text, '\nError: folder', self.data_folder, 'does not exist!')
+            self.state = False # False state of object
+            return
+
+        self.results_folder = os.path.join(norm_output_folder, self.experiment_name, 'results')
+        if not os.path.exists(self.results_folder):
+            os.makedirs(self.results_folder)
+
+        self.train_fold_max = train_fold_max
+
         # create column names
         self.dtype_list = [('label_i', str),
                            ('label', str),
@@ -63,20 +81,42 @@ class Evaluation:
 
         self.fpr_fnr_names = ['FPR', 'FNR', 'TPR', 'TNR', 'PPV', 'FPR+FNR', 'J=TPR+TNR-1']
 
-        # load MultiLabelBinarizer object
-        with open(os.path.join(self.data_folder, 'mlb.pkl'), 'rb') as tokenizer:
-            mlb = pickle.load(tokenizer)
+        # load df table, ind matrix and MultiLabelBinarizer object
+        mlb_path = os.path.join(self.data_folder, 'tab_ind_mlb.pkl')
+        if self.eval_params['add_train_folds'] and os.path.isfile(mlb_path): # add_train_folds = True and file exists
+            with open(mlb_path, 'rb') as tokenizer:
+                [self.df_labels_full, y_labels_full, mlb] = pickle.load(tokenizer)
+                self.train_folds = self.df_labels_full.loc[self.df_labels_full['strat_fold'] <= self.train_fold_max, 'strat_fold'].to_numpy()
+                self.train_folds_range = [(fold, 'tr_fold_' + str(fold)) for fold in range(1, self.train_fold_max + 1)]
+                y_labels_train = y_labels_full[self.df_labels_full['strat_fold'] <= self.train_fold_max] # for checking correctness
+        else:
+            mlb_path = os.path.join(self.data_folder, 'mlb.pkl')
+            if os.path.isfile(mlb_path):
+                with open(mlb_path, 'rb') as tokenizer:
+                    mlb = pickle.load(tokenizer)
+            else:
+                print(self.evaluate_text, '\nError: mlb.pkl file does not exist!')
+                self.state = False # False state of object
+                return
+
+        # class labels list
         self.classes = mlb.classes_
 
         # load actual class labels
         self.load_labels()
 
-        # output text
-        self.out_text = ['output_folder: ' + self.output_folder_name,
-                    'data_name: ' + data_name,
-                    'exp: ' + self.experiment_name,
-                    'data_type: ' + self.data_type_name] # data type for pdf first page only
-        self.data_exp_text = self.out_text[1] + ', ' + self.out_text[2]
+        self.out_text.append('data_type: ' + self.data_type_name) # data type for pdf first page only
+
+        # check corectness of y_labels_train
+        if 'y_labels_train' in locals():
+            assert np.array_equal(y_labels_train, self.y_labels_dict['train']), 'y_labels_train is incorrect!'
+
+        # True state of object
+        self.state = True
+
+    # return state of object: True of False
+    def __bool__(self):
+        return self.state
 
     # load actual class labels
     def load_labels(self):
@@ -90,17 +130,22 @@ class Evaluation:
             self.y_labels_thr = np.concatenate((self.y_labels_dict[self.data_types_ext[0]], self.y_labels_dict[self.data_types_ext[1]]), axis = 0) # 'train' & 'valid'
             self.data_type_name = self.data_types_ext[0] + '_' + self.data_types_ext[1]
             self.data_type_suffix = '_' + self.data_types_ext[0][0] + '_' + self.data_types_ext[1][0]
-            self.data_type_united = 'united' + self.data_type_suffix + '_thr_' + self.data_types_ext[2][0]
+            #self.data_type_united = 'united' + self.data_type_suffix + '_thr_' + self.data_types_ext[2][0]
         else:
             self.y_labels_thr = self.y_labels_dict[self.data_types_ext[0]] # 'train'
             self.data_type_name = self.data_types_ext[0]
             self.data_type_suffix = '_' + self.data_types_ext[0][0]
-            self.data_type_united = 'united' + self.data_type_suffix + '_thr_' + self.data_types_ext[1][0] + '_' + self.data_types_ext[2][0]
+            #self.data_type_united = 'united' + self.data_type_suffix + '_thr_' + self.data_types_ext[1][0] + '_' + self.data_types_ext[2][0]
         self.data_type_name_thr = self.data_type_name + '_thr'
+        self.file_type = 'folds' + self.data_type_suffix
 
         self.N_labels = self.y_labels_thr.shape[1]
         self.label_inds = range(self.N_labels)
-        #self.N_samples = self.y_labels_thr.shape[0]
+
+        # add labels of train folds
+        if hasattr(self, 'train_folds_range'):
+            for (fold, data_type) in self.train_folds_range:
+                self.y_labels_dict[data_type] = self.y_labels_dict['train'][self.train_folds == fold]
 
     # create head of table for model results
     def create_table(self, model_txt):
@@ -114,8 +159,7 @@ class Evaluation:
     # create head of result table
     def create_res_table(self, data_type_name):
         # header table text
-        return pd.DataFrame({'label_i': ['Results: '
-                                         + self.out_text[0] + ', '
+        return pd.DataFrame({'label_i': [self.out_text[0] + ', '
                                          + self.data_exp_text,
                                          'data_type:'],
                              'label': ['', ''],
@@ -260,7 +304,7 @@ class Evaluation:
         return [ind_min1, ind_min2]
 
     # form output table
-    def form_output_table(self, df_mean_res):
+    def form_output_table(self, df_mean_res, data_type):
         index_names = df_mean_res.index.values
         mean_dict = {index_names[0]: df_mean_res.loc[index_names[0]]} # 'ROCAUC'
         for i in range(1, len(index_names)):
@@ -269,7 +313,7 @@ class Evaluation:
                 continue
             mean_dict[name] = df_mean_res.loc[name]
 
-        return pd.DataFrame(mean_dict, index = ['point'])
+        return pd.DataFrame(mean_dict, index = [data_type])
 
     # calc roc_auc, fpr, fnr for every labels,
     # build graphs and estimate thresholds
@@ -283,53 +327,55 @@ class Evaluation:
 
         path_conf_m_table = rpath + self.data_type_name_thr + '_conf_mat'
 
-        # for current pdf file
-        with PdfPages(path_conf_m_table + '.pdf') as pdf:
+        if self.eval_params['save_pdf_files']:
+            # open pdf file
+            pdf = PdfPages(path_conf_m_table + '.pdf')
             # build first page
             first_page_txt = ''
             for i, text in enumerate(self.out_text):
                 if i > 0:
                     first_page_txt += '\n'
                 first_page_txt += text
-            first_page_txt += '\n' + model_txt
+            first_page_txt += '\n' + 'model: ' + model_txt
             self.build_first_page(pdf, first_page_txt)
 
-            df_fpr_fnr_table_list = [] # list of tables by labels
-            # cycle by labels (columns)
-            for l in self.label_inds: # [0, 1, 2]
-                y_labels_col = self.y_labels_thr[:, l]
-                y_preds_col = y_preds_thr[:, l]
+        df_fpr_fnr_table_list = [] # list of tables by labels
+        # cycle by labels (columns)
+        for l in self.label_inds: # [0, 1, 2]
+            y_labels_col = self.y_labels_thr[:, l]
+            y_preds_col = y_preds_thr[:, l]
 
-                # tp, fp, tn, fn
-                y_pred_uniq, conf_m, fpr_fnr_etc = self.calc_fpr_fnr_etc(y_labels_col, y_preds_col)
+            # tp, fp, tn, fn
+            y_pred_uniq, conf_m, fpr_fnr_etc = self.calc_fpr_fnr_etc(y_labels_col, y_preds_col)
 
-                # ROC AUC
-                roc_auc = metrics.roc_auc_score(y_labels_col, y_preds_col)
+            # ROC AUC
+            roc_auc = metrics.roc_auc_score(y_labels_col, y_preds_col)
 
-                # write to dataframe
-                df_fpr_fnr_table = pd.DataFrame(conf_m, columns = ['tp', 'fp', 'tn', 'fn'])
-                df_fpr_fnr_table.insert(0, 'threshold', y_pred_uniq)
+            # write to dataframe
+            df_fpr_fnr_table = pd.DataFrame(conf_m, columns = ['tp', 'fp', 'tn', 'fn'])
+            df_fpr_fnr_table.insert(0, 'threshold', y_pred_uniq)
 
-                # write FPR, FNR, etc to dataframe
-                for i in range(len(self.fpr_fnr_names)):
-                    df_fpr_fnr_table[self.fpr_fnr_names[i]] = fpr_fnr_etc[:, i]
+            # write FPR, FNR, etc to dataframe
+            for i in range(len(self.fpr_fnr_names)):
+                df_fpr_fnr_table[self.fpr_fnr_names[i]] = fpr_fnr_etc[:, i]
 
-                # find optimal threshold
-                ind_min_list = self.find_optimal_threshold(fpr_fnr_etc)
+            # find optimal threshold
+            ind_min_list = self.find_optimal_threshold(fpr_fnr_etc)
 
-                # write text to pdf
-                Np = np.count_nonzero(y_labels_col)
-                Nn = self.y_labels_thr.shape[0] - Np
+            # write text to pdf
+            Np = np.count_nonzero(y_labels_col)
+            Nn = self.y_labels_thr.shape[0] - Np
 
-                values = [str(Np),
-                          str(Nn),
-                          roc_auc]
+            values = [str(Np),
+                        str(Nn),
+                        roc_auc]
 
-                for k in range(self.N_thrs): # loop for N_thr
-                    values.append(y_pred_uniq[ind_min_list[k]])
-                    values.append(fpr_fnr_etc[ind_min_list[k], 0])
-                    values.append(fpr_fnr_etc[ind_min_list[k], 1])
+            for k in range(self.N_thrs): # loop for N_thr
+                values.append(y_pred_uniq[ind_min_list[k]])
+                values.append(fpr_fnr_etc[ind_min_list[k], 0])
+                values.append(fpr_fnr_etc[ind_min_list[k], 1])
 
+            if self.eval_params['save_pdf_files']:
                 values_txt = []
                 for val in values:
                     if isinstance(val, float):
@@ -352,14 +398,18 @@ class Evaluation:
                 # write graph to pdf
                 self.build_graph(pdf, y_pred_uniq, fpr_fnr_etc, text)
 
-                # write to txt file
-                if self.save_eval_raw_txt:
-                    df_fpr_fnr_table_list.append(df_fpr_fnr_table)
+            # write to txt file
+            if self.eval_params['save_raw_txt']:
+                df_fpr_fnr_table_list.append(df_fpr_fnr_table)
 
-                # write values to table
-                df_res_table.iloc[l + 3, 2:] = values
+            # write values to table
+            df_res_table.iloc[l + 3, 2:] = values
 
-        if self.save_eval_raw_txt:
+        if self.eval_params['save_pdf_files']:
+            # close pdf file
+            pdf.close()
+
+        if self.eval_params['save_raw_txt']:
             df_conf_m_res = pd.concat(df_fpr_fnr_table_list, keys = self.label_inds, names = ['label', 'i'])
             df_conf_m_res.to_csv(path_conf_m_table + '.csv', ';', decimal = ',')
 
@@ -367,13 +417,13 @@ class Evaluation:
         df_mean_res = df_res_table.mean(axis = 0, numeric_only = True)
         df_res_table.iloc[2, 4:] = df_mean_res
 
-        return df_res_table, self.form_output_table(df_mean_res)
+        return df_res_table, self.form_output_table(df_mean_res, self.data_type_name_thr)
 
     # calc roc_auc, fpr, fnr
     # y_labels - true relations to classes (labels) n x m
     # y_preds - predicted relations to classes n x m
     # thr_arr - thresholds for estimation k x m
-    def challenge_metrics(self, y_labels, y_preds, thr_arr, model_txt):
+    def challenge_metrics(self, y_labels, y_preds, thr_arr, model_txt, data_type):
         # create df_res_table
         df_res_table = self.create_table(model_txt)
 
@@ -416,23 +466,31 @@ class Evaluation:
         df_mean_res = df_res_table.mean(axis = 0, numeric_only = True)
         df_res_table.iloc[2, 4:] = df_mean_res
 
-        return df_res_table, self.form_output_table(df_mean_res)
+        return df_res_table, self.form_output_table(df_mean_res, data_type)
 
     # calc challenge metrics for models
     def challenge_metrics_models(self):
-        # initialize lists of result tables
-        res_table_list_thr = [self.create_res_table(self.data_type_name_thr)]
 
+        # initialize lists of result tables
         if self.use_train_valid_for_thr:
             data_types_estim = self.data_types_ext[2:] # 'test'
         else:
             data_types_estim = self.data_types_ext[1:] # 'valid' & 'test'
-        # DEBUG
-        #data_types_estim = self.data_types_ext
 
-        res_table_list = {}
-        for data_type in data_types_estim:
-            res_table_list[data_type] = [self.create_res_table(data_type)]
+        #data_types_estim = self.data_types_ext # DEBUG
+        # add data types to data_types_estim
+        if hasattr(self, 'train_folds_range'):
+            for (fold, data_type) in self.train_folds_range:
+                data_types_estim.append(data_type)
+            # add validation fold
+            if self.use_train_valid_for_thr:
+                data_types_estim.append(self.data_types_ext[1])
+
+        #res_table_list = {}
+        #for data_type in data_types_estim:
+        #    res_table_list[data_type] = [self.create_res_table(data_type)]
+
+        dfs_models = [] # dataframes of models related to exp table
 
         models = sorted(os.listdir(os.path.join(self.output_folder, self.experiment_name, 'models')), key = str.lower)
         # move 'ensemble' and 'naive' to the end of list
@@ -444,16 +502,25 @@ class Evaluation:
             #    continue
 
             model_txt = 'model: ' + model
-            caption_text = 'evaluate(): ' + self.data_exp_text + ', ' + model_txt
+            caption_text = self.evaluate_text + ', ' + model_txt
             print(caption_text)
             mpath = self.output_folder + self.experiment_name + '/models/' + model + '/'
             rpath = self.output_folder + self.experiment_name + '/models/' + model + '/results/'
 
             # load predictions
             y_preds_dict = {}
+            bypass_model = False
             for data_type in self.data_types_ext:
                 name = data_type_to_name(data_type)
-                y_preds_dict[data_type] = np.load(mpath + 'y_' + name + '_pred.npy', allow_pickle = True)
+                preds_path = mpath + 'y_' + name + '_pred.npy'
+                if os.path.isfile(os.path.normpath(preds_path)): # file exists
+                    y_preds_dict[data_type] = np.load(preds_path, allow_pickle = True)
+                else:
+                    bypass_model = True
+                    break
+            # bypass model because of loading data error
+            if bypass_model:
+                continue
 
             # unite train and valid predictions (True or False)
             if self.use_train_valid_for_thr:
@@ -462,9 +529,9 @@ class Evaluation:
                 y_preds_thr = y_preds_dict[self.data_types_ext[0]] # 'train'
 
             # calc roc_auc, fpr, fnr and build graphs and thresholds estimation
-            df_res_table_thr, df_mean_res_thr = self.challenge_metrics_thr(y_preds_thr, rpath, model_txt)
-            res_table_list_thr.append(df_res_table_thr)
-            df_mean_res_thr.to_csv(rpath + self.data_type_name_thr + '_results' + '.csv')
+            df_res_table_thr, df_mean_res_thr = self.challenge_metrics_thr(y_preds_thr, rpath, model)
+            #res_table_list_thr.append(df_res_table_thr)
+            #df_mean_res_thr.to_csv(rpath + self.data_type_name_thr + '_results' + '.csv')
 
             # get threshold values
             thr_arr = np.zeros((self.N_thrs, self.N_labels), dtype = float)
@@ -472,28 +539,54 @@ class Evaluation:
                 str_num = str(k + 1)
                 thr_arr[k, :] = df_res_table_thr.loc[3:, 'thr' + str_num].to_numpy()
 
+            if not dfs_models:
+                df_head_thr = self.create_res_table(self.data_type_name_thr)
+                df_res_table_thr = pd.concat([df_head_thr, df_res_table_thr], ignore_index = True) # dataframes of data types related to model
+
+            dfs_types = [df_res_table_thr] # dataframes of data types related to model
+            mean_res_list = [df_mean_res_thr]
+
+            # add predictions of train folds
+            if hasattr(self, 'train_folds_range'):
+                for (fold, data_type) in self.train_folds_range:
+                    y_preds_dict[data_type] = y_preds_dict['train'][self.train_folds == fold]
+
             # calc estimation for test or valid and test
             for data_type in data_types_estim:
-                df_res_table, df_mean_res = self.challenge_metrics(self.y_labels_dict[data_type], y_preds_dict[data_type], thr_arr, model_txt)
-                res_table_list[data_type].append(df_res_table)
-                df_mean_res.to_csv(os.path.join(rpath, data_type + self.data_type_suffix + '_results' + '.csv'))
+                df_res_table, df_mean_res = self.challenge_metrics(self.y_labels_dict[data_type], y_preds_dict[data_type], thr_arr, model, data_type)
+                #res_table_list[data_type].append(df_res_table)
+                #df_mean_res.to_csv(os.path.join(rpath, data_type + self.data_type_suffix + '_results' + '.csv'))
+
+                if not dfs_models:
+                    df_head = self.create_res_table(data_type)
+                    df_res_table = pd.concat([df_head, df_res_table], ignore_index = True)
+
+                # remove columns: label_i, label, thr1, thr2
+                df_res_table.drop(df_res_table.columns[0:2], axis = 'columns', inplace = True)
+                df_res_table.drop(df_res_table.columns[df_res_table.columns.str[0:3] == 'thr'], axis = 'columns', inplace = True)
+
+                dfs_types.append(df_res_table)
+                mean_res_list.append(df_mean_res)
+
+            df_cc_types = pd.concat(dfs_types, axis = 'columns')
+            dfs_models.append(df_cc_types)
+
+            df_cc_mean_res = pd.concat(mean_res_list)
+            df_cc_mean_res.to_csv(os.path.join(rpath, self.file_type + '_results' + '.csv'))
 
         # form tables and save to txt
-        df_cc_res_table_thr = pd.concat(res_table_list_thr, ignore_index = True)
+        #df_cc_res_table_thr = pd.concat(res_table_list_thr, ignore_index = True)
         #df_cc_res_table_thr.to_csv(os.path.join(self.results_folder, self.data_type_name_thr + '_' + self.experiment_name.lower() + '_results' + '.csv'), ';', index = False, decimal = ',')
-        df_cc_list = [df_cc_res_table_thr]
+        #df_cc_list = [df_cc_res_table_thr]
 
-        for data_type in data_types_estim:
-            df_cc_res_table = pd.concat(res_table_list[data_type], ignore_index = True)
-            #df_cc_res_table.to_csv(os.path.join(self.results_folder, data_type + self.data_type_suffix + '_' + self.experiment_name.lower() + '_results' + '.csv'), ';', index = False, decimal = ',')
-            df_cc_res_table.drop(df_cc_res_table.columns[0:2], axis = 'columns', inplace = True)
-            df_cc_res_table.drop(df_cc_res_table.columns[df_cc_res_table.columns.str[0:3] == 'thr'], axis = 'columns', inplace = True)
-            df_cc_list.append(df_cc_res_table)
+        #for data_type in data_types_estim:
+        #    df_cc_res_table = pd.concat(res_table_list[data_type], ignore_index = True)
+        #    #df_cc_res_table.to_csv(os.path.join(self.results_folder, data_type + self.data_type_suffix + '_' + self.experiment_name.lower() + '_results' + '.csv'), ';', index = False, decimal = ',')
+        #    df_cc_res_table.drop(df_cc_res_table.columns[0:2], axis = 'columns', inplace = True)
+        #    df_cc_res_table.drop(df_cc_res_table.columns[df_cc_res_table.columns.str[0:3] == 'thr'], axis = 'columns', inplace = True)
+        #    df_cc_list.append(df_cc_res_table)
 
-        if df_cc_list: # df_cc_list is not empty
-            if len(df_cc_list) > 1:
-                d_types_str = self.data_type_united
-            else: # len == 1
-                d_types_str = self.data_type_name_thr
-            df_cc_cols = pd.concat(df_cc_list, axis = 'columns')
-            df_cc_cols.to_csv(os.path.join(self.results_folder, d_types_str + '_' + self.experiment_name.lower() + '_results' + '.csv'), ';', index = False, decimal = ',')
+        if dfs_models: # dfs_models is not empty
+            df_cc_models = pd.concat(dfs_models, ignore_index = True)
+            d_types_str = 'united_' + self.file_type + '_' + self.experiment_name.lower()
+            df_cc_models.to_csv(os.path.join(self.results_folder, d_types_str + '_results' + '.csv'), ';', index = False, decimal = ',')

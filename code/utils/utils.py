@@ -267,7 +267,7 @@ def compute_label_aggregations(df, folder, ctype):
 
     return df
 
-def select_data(XX,YY, ctype, min_samples, outputfolder):
+def select_data(XX, YY, ctype, min_samples, outputfolder, save_mlb_file):
     # convert multilabel to multi-hot
     mlb = MultiLabelBinarizer()
 
@@ -331,8 +331,16 @@ def select_data(XX,YY, ctype, min_samples, outputfolder):
         pass
 
     # save LabelBinarizer
-    with open(outputfolder+'mlb.pkl', 'wb') as tokenizer:
-        pickle.dump(mlb, tokenizer)
+    if save_mlb_file:
+        with open(outputfolder+'mlb.pkl', 'wb') as tokenizer:
+            pickle.dump(mlb, tokenizer)
+
+    # save data:
+    # Y - table based on csv file
+    # y - indicator matrix
+    # mlb - LabelBinarizer
+    with open(outputfolder+'tab_ind_mlb.pkl', 'wb') as tokenizer:
+        pickle.dump([Y, y, mlb], tokenizer)
 
     return X, Y, y, mlb
 
@@ -356,6 +364,40 @@ def apply_standardizer(X, ss):
     return X_tmp
 
 # DOCUMENTATION STUFF
+def load_tables(exp, folder, selection, file_type):
+
+    if selection is None:
+        models = sorted(os.listdir(os.path.join(folder, exp, 'models')), key = str.lower)
+    else:
+        models = sorted(selection, key = str.lower)
+    # move 'ensemble' and 'naive' to the end of list
+    models.sort(key = lambda s: s == 'ensemble' or s == 'naive')
+
+    data_table = {}
+
+    for model in models:
+        res_path = os.path.join(folder, exp, 'models', model, 'results', file_type + '_results.csv')
+
+        if os.path.isfile(res_path): # file exists
+            table_types = pd.read_csv(res_path, index_col = 0).applymap(lambda x: locale.format_string("%.4f", x))
+        else:
+            continue
+
+        for data_type in table_types.index:
+            table = table_types.loc[[data_type]]
+            table.insert(0, 'Model', model)
+
+            if data_type in data_table:
+                data_table[data_type].append(table)
+            else:
+                data_table[data_type] = [table]
+
+    df_cc_table = {}
+    for data_type in data_table.keys():
+        df_cc_table[data_type] = pd.concat(data_table[data_type], ignore_index = True)
+
+    return df_cc_table
+
 def exp_table(exp, folder, selection, data_type):
 
     if selection is None:
@@ -372,13 +414,12 @@ def exp_table(exp, folder, selection, data_type):
     for model in models:
         res_path = os.path.join(folder, exp, 'models', model, 'results', data_type + '_results.csv') # 'test_results.csv'
 
-        if os.path.isfile(res_path): # file is exist
+        if os.path.isfile(res_path): # file exists
             me_res = pd.read_csv(res_path, index_col = 0)
-            me_res.rename(columns = lambda x: x.replace('macro_auc', 'ROCAUC'), inplace = True)
+            #me_res.rename(columns = lambda x: x.replace('macro_auc', 'ROCAUC'), inplace = True)
 
             if cols: # cols are not empty
-                if me_res.columns.tolist() != cols:
-                    raise ValueError('Columns in current table are different!')
+                assert me_res.columns.tolist() != cols, 'Columns in current table are different!'
             else: # cols are empty
                 cols = me_res.columns.tolist()
 
@@ -408,17 +449,13 @@ def exp_table(exp, folder, selection, data_type):
     return df
 
 # helper output function for markdown tables
-def print_table(dfs, exps_out):
-    #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
-    #df_rest = df_rest.sort_values('macro_auc', ascending=False)
-    #df_rest = df
-    i_exp = 0
-    for i_df in range(1, len(dfs)):
-        df = dfs[i_df]
+def print_table(df_table):
+
+    for data_type in df_table.keys():
+        df = df_table[data_type]
+
         if df.loc[0, 'Model']: # value is not empty
-            #cols = [col for col in df.columns if col]
-            md_source = '\nexp = ' + exps_out[i_exp]
-            i_exp += 1
+            md_source = '\ndata_type = ' + data_type
             md_source += '\n'
             # print column names
             for i, col in enumerate(df.columns.values):
@@ -430,7 +467,6 @@ def print_table(dfs, exps_out):
             #md_source += ''
 
             for ind in df.index:
-                #md_source += '\n| ' + df_rest.index[i].replace('fastai_', '') + ' | ' + row[0] + ' | ' + row[1] + ' | ' + row[2]
                 md_source += '\n'
                 for i, val in enumerate(df.loc[ind]):
                     if i == 0:
@@ -443,53 +479,87 @@ def print_table(dfs, exps_out):
             #md_source += '\n'
             print(md_source)
 
-def generate_summary_table(data_name, exps, folder, selection = None, file_types = [], file_types_suffix = ''):
+def generate_summary_table(data_name, exps, folder, selection = None, file_types = []):
     # set system local numeric prefences
     locale.setlocale(locale.LC_NUMERIC, '')
 
-    #exps = ['exp0', 'exp1', 'exp1.1', 'exp1.1.1', 'exp2', 'exp3']
     output_folder_name = os.path.normpath(folder).split(os.sep)[-1] # output folder name
-    df_cc_list = []
-    data_types_out = []
+    #exps = ['exp0', 'exp1', 'exp1.1', 'exp1.1.1', 'exp2', 'exp3']
+    #df_cc_list = []
+    #data_types_out = []
 
-    for data_type in file_types:
-
-        df_head = pd.DataFrame({'Model': ['Results: '
-                                          + 'output_folder: ' + output_folder_name + ', '
+    for file_type in file_types:
+        df_head = pd.DataFrame({'Model': ['folder: ' + output_folder_name + ', '
                                           + 'data_name: ' + data_name,
                                           'data_type:']})
-        dfs = [] # dataframes related to experiments
 
-        exps_out = []
+        dfs_exps = [] # dataframes of experiments related to whole table
+
         for exp in exps:
-            df = exp_table(exp, folder, selection, data_type)
-            if not df.empty: # df is not empty
-                exps_out.append(exp)
-                if not dfs:  # dfs is empty
-                    df_head[df.columns[1]] = ['', data_type]
+            #df = exp_table(exp, folder, selection, data_type)
+            df_table = load_tables(exp, folder, selection, file_type)
+            dfs_types = [] # dataframes of data types related to experiment
+
+            for data_type in df_table.keys():
+                #if not df_table[data_type]: # df is not empty
+                dfs = [] # dataframes of head and models related to data type
+
+                if not dfs_exps: # exps_out is empty
+                    df_head[df_table[data_type].columns[1]] = ['', data_type]
                     dfs.append(df_head)
+
+                #if not dfs:  # dfs is empty
                 dfs.append(pd.DataFrame({'Model': ['', exp]}))
-                dfs.append(df)
+                dfs.append(df_table[data_type])
+                df_cc = pd.concat(dfs, ignore_index = True)
 
-        if not dfs: # dfs is empty
-            continue
+                if dfs_types: # dfs_types is not empty
+                    df_cc.drop(df_cc.columns[0], axis = 'columns', inplace = True) # drop 'Model' column
+                dfs_types.append(df_cc)
 
-        df_cc = pd.concat(dfs, ignore_index = True)
+            if dfs_types:
+                df_cc_types = pd.concat(dfs_types, axis = 'columns')
+                dfs_exps.append(df_cc_types)
+
+                print('\n==================================================================')
+                print(data_name + ' results, file = ' + file_type + ', exp = ' + exp) #, end = ''
+                print_table(df_table)
+
+        if dfs_exps: # dfs_exps is not empty
+            # equalize columns if required
+            i_cols_max = max(enumerate(dfs_exps), key = lambda x: x[1].shape[1])[0]
+            for i in range(len(dfs_exps)):
+                (mi, ni) = dfs_exps[i].shape
+                nmax = dfs_exps[i_cols_max].shape[1]
+                if ni != nmax:
+                    for j in range(ni, nmax):
+                        dtype = dfs_exps[i_cols_max].dtypes[j]
+                        tmp = np.empty((mi, 1), dtype)
+                        if dtype == np.dtype('float'):
+                            tmp.fill(np.nan)
+                        dfs_exps[i].insert(j, str(j), tmp)
+                dfs_exps[i].columns = dfs_exps[i_cols_max].columns
+
+            df_cc_exps = pd.concat(dfs_exps, ignore_index = True)
+            d_types_str = 'united_' + file_type + '_' + data_name.lower()
+            df_cc_exps.to_csv(os.path.join(folder, d_types_str + '_results' + '.csv'), ';', index = False) #, decimal = ','
+
+        #if not dfs: # dfs is empty
+        #    continue
+
+        #df_cc = pd.concat(dfs, ignore_index = True)
         #df_cc.to_csv(os.path.join(folder, data_type + '_' + data_name.lower() + '_results' + '.csv'), ';', index = False) #, decimal = ','
 
-        if df_cc_list: # df_cc_list is not empty
-            df_cc.drop(df_cc.columns[0], axis = 'columns', inplace = True) # drop 'Model' column
-        df_cc_list.append(df_cc)
-        data_types_out.append(data_type)
+        #if df_cc_list: # df_cc_list is not empty
+        #    df_cc.drop(df_cc.columns[0], axis = 'columns', inplace = True) # drop 'Model' column
+        #df_cc_list.append(df_cc)
+        #data_types_out.append(data_type)
 
-        print('\n==================================================================')
-        print(data_name + ' results, data_type = ' + data_type) #, end = ''
-        print_table(dfs, exps_out)
 
-    if df_cc_list: # df_cc_list is not empty
-        if len(df_cc_list) > 1:
-            d_types_str = 'united_' + file_types_suffix
-        else: # len == 1
-            d_types_str = data_types_out[0]
-        df_cc_cols = pd.concat(df_cc_list, axis = 'columns')
-        df_cc_cols.to_csv(os.path.join(folder, d_types_str + '_' + data_name.lower() + '_results' + '.csv'), ';', index = False) #, decimal = ','
+    #if df_cc_list: # df_cc_list is not empty
+    #    if len(df_cc_list) > 1:
+    #        d_types_str = 'united_' + file_types_suffix
+    #    else: # len == 1
+    #        d_types_str = data_types_out[0]
+    #    df_cc_cols = pd.concat(df_cc_list, axis = 'columns')
+    #    df_cc_cols.to_csv(os.path.join(folder, d_types_str + '_' + data_name.lower() + '_results' + '.csv'), ';', index = False) #, decimal = ','

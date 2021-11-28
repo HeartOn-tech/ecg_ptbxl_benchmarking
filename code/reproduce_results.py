@@ -11,10 +11,10 @@ def main(record_base_path):
     datafolder_ptbxl = os.path.join(record_base_path, 'ptbxl')  # '../data/ptbxl/'
     datafolder_icbeb = os.path.join(record_base_path, 'ICBEB')  # '../data/ICBEB/'
     outputfolder = '../output/'
-    mode = 'estim'
+    mode = 'eval'
                  # 'results' - только таблица результатов
                  # 'estim' - только оценка эффективности моделей в зависимости от порога и таблица результатов
-                 # 'eval' - только расчет оценок классификации по моделям,
+                 # 'eval' - подготовка данных (prepare()) и расчет оценок классификации по моделям,
                  # 'predict' - только выполнение предсказания по обученным моделям,
                  # 'fit' - выполнение обучения моделей,
                  # 'finetune' - дообучение моделей (только fastai-модели)
@@ -29,19 +29,21 @@ def main(record_base_path):
         conf_wavelet_standard_nn
         ]
 
-    # Data set
-    # use_train_valid_for_thr: True: use train and valid data for threshold evaluation, False: use train data only for threshold evaluation
-    use_train_valid_for_thr = False
-    # save output csv files with raw data (by labels) - True/False
-    save_eval_raw_txt = False
-    data_types = ['train', 'valid', 'test']
+    # Evaluation module additional options
+    eval_params = {
+        'data_types': ['train', 'valid', 'test'], # Data types
+        'save_mlb_file' : False,           # save mlb.pkl file in prepare()
+        'N_thrs' : 2,                      # number of threshold criterion
+        'use_train_valid_for_thr' : False, # True: use train and valid data for threshold evaluation, False: use train data only for threshold evaluation
+        'add_train_folds' : True,          # add train folds for analysis - True/False
+        'save_pdf_files' : False,          # save pdf files with graphs - True/False
+        'save_raw_txt' : False             # save output csv files with raw data (by labels) - True/False
+        }
 
-    if use_train_valid_for_thr: # base: train & valid, estim: test
-        file_types = ['train_valid_thr', 'test_t_v']
-        file_types_suffix = 't_v_thr_t'
-    else:                       # base: train, estim: valid, test
-        file_types = ['train_thr', 'valid_t', 'test_t']
-        file_types_suffix = 't_thr_v_t'
+    if eval_params['use_train_valid_for_thr']: # base: train & valid, estim: test
+        file_types = ['folds_t_v']
+    else:                                      # base: train, estim: valid, test
+        file_types = ['folds_t']
 
     ##########################################
     # STANDARD SCP EXPERIMENTS ON PTBXL
@@ -71,14 +73,14 @@ def main(record_base_path):
                                    outputfolder,
                                    models,
                                    mode = mode,
-                                   use_train_valid_for_thr = use_train_valid_for_thr,
-                                   save_eval_raw_txt = save_eval_raw_txt)
+                                   eval_params = eval_params)
 
-                if mode != 'eval' and mode != 'estim':
+                if mode != 'estim':
                     e.prepare()
+                if mode != 'eval' and mode != 'estim':
                     e.perform()
 
-                e.evaluate(data_types = data_types)
+                e.evaluate()
 
         #generate greate summary table
         #if mode != 'estim':
@@ -86,8 +88,7 @@ def main(record_base_path):
                                      exps,
                                      outputfolder,
                                      None,
-                                     file_types,
-                                     file_types_suffix)
+                                     file_types)
 
     ##########################################
     # EXPERIMENT BASED ICBEB DATA
@@ -107,14 +108,14 @@ def main(record_base_path):
                                outputfolder,
                                models,
                                mode = mode,
-                               use_train_valid_for_thr = use_train_valid_for_thr,
-                               save_eval_raw_txt = save_eval_raw_txt)
+                               eval_params = eval_params)
 
-            if mode != 'eval' and mode != 'estim':
+            if mode != 'estim':
                 e.prepare()
+            if mode != 'eval' and mode != 'estim':
                 e.perform()
 
-            e.evaluate(data_types = data_types)
+            e.evaluate()
 
         # generate greate summary table
         #if mode != 'estim':
@@ -122,8 +123,7 @@ def main(record_base_path):
                                      [exp_name],
                                      outputfolder,
                                      None,
-                                     file_types,
-                                     file_types_suffix)
+                                     file_types)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
