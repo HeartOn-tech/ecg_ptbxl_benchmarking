@@ -27,7 +27,8 @@ class SCP_Experiment():
                  test_fold = 10,
                  folds_type = 'strat',
                  mode = 'predict',
-                 eval_params = {}):
+                 eval_params = {},
+                 excel_writer = None):
 
         self.models = models
         self.min_samples = min_samples
@@ -43,6 +44,10 @@ class SCP_Experiment():
         self.data_name = data_name
         self.mode = mode
         self.eval_params = eval_params # evaluation module additional options
+        if self.eval_params['save_to_excel']:
+            self.excel_writer = excel_writer # pd.ExcelWriter object
+        else:
+            self.excel_writer = None
 
         # create folder structure if needed
         exp_folder = os.path.join(self.outputfolder, self.experiment_name)
@@ -203,7 +208,8 @@ class SCP_Experiment():
                                        self.experiment_name,
                                        self.data_name,
                                        self.train_fold,
-                                       self.eval_params)
+                                       self.eval_params,
+                                       self.excel_writer)
 
         # calc evaluation results for base data with threshold evaluation,
         # evaluation results for test (or valid and test) data

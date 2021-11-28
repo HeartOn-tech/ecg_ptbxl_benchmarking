@@ -5,6 +5,7 @@ from utils import utils
 # model configs
 from configs.fastai_configs import *
 from configs.wavelet_configs import *
+import pandas as pd
 
 
 def main(record_base_path):
@@ -34,16 +35,13 @@ def main(record_base_path):
         'data_types': ['train', 'valid', 'test'], # Data types
         'save_mlb_file' : False,           # save mlb.pkl file in prepare()
         'N_thrs' : 2,                      # number of threshold criterion
-        'use_train_valid_for_thr' : False, # True: use train and valid data for threshold evaluation, False: use train data only for threshold evaluation
+        'use_train_valid_for_thr' : True,  # True: use train and valid data for threshold evaluation, False: use train data only for threshold evaluation
         'add_train_folds' : True,          # add train folds for analysis - True/False
+        'save_to_excel' : True,            # save results to excel file - True/False
+        'save_to_csv' : False,             # save results to csv file - True/False
         'save_pdf_files' : False,          # save pdf files with graphs - True/False
         'save_raw_txt' : False             # save output csv files with raw data (by labels) - True/False
         }
-
-    if eval_params['use_train_valid_for_thr']: # base: train & valid, estim: test
-        file_types = ['folds_t_v']
-    else:                                      # base: train, estim: valid, test
-        file_types = ['folds_t']
 
     ##########################################
     # STANDARD SCP EXPERIMENTS ON PTBXL
@@ -51,7 +49,7 @@ def main(record_base_path):
     use_PTBXL = True
 
     if use_PTBXL:
-        data_name = 'ptbxl'
+        data_name = 'PTBXL'
         experiments = [
             ('exp0', 'all'),
             ('exp1', 'diagnostic'),
@@ -61,6 +59,11 @@ def main(record_base_path):
             ('exp3', 'rhythm')
            ]
         exps = []
+
+        summary_table = utils.Summary_Table(
+                                     data_name,
+                                     outputfolder,
+                                     eval_params)
 
         for exp_name, task in experiments:
             exps.append(exp_name)
@@ -73,7 +76,8 @@ def main(record_base_path):
                                    outputfolder,
                                    models,
                                    mode = mode,
-                                   eval_params = eval_params)
+                                   eval_params = eval_params,
+                                   excel_writer = summary_table.excel_writer)
 
                 if mode != 'estim':
                     e.prepare()
@@ -84,11 +88,8 @@ def main(record_base_path):
 
         #generate greate summary table
         #if mode != 'estim':
-        utils.generate_summary_table(data_name,
-                                     exps,
-                                     outputfolder,
-                                     None,
-                                     file_types)
+        summary_table.generate_summary_table(exps,
+                                             None)
 
     ##########################################
     # EXPERIMENT BASED ICBEB DATA
@@ -100,6 +101,11 @@ def main(record_base_path):
         exp_name = 'exp_ICBEB'
         task = 'all'
 
+        summary_table = utils.Summary_Table(
+                                     data_name,
+                                     outputfolder,
+                                     eval_params)
+
         if mode != 'results':
             e = SCP_Experiment(data_name,
                                exp_name,
@@ -108,7 +114,8 @@ def main(record_base_path):
                                outputfolder,
                                models,
                                mode = mode,
-                               eval_params = eval_params)
+                               eval_params = eval_params,
+                               excel_writer = summary_table.excel_writer)
 
             if mode != 'estim':
                 e.prepare()
@@ -119,11 +126,8 @@ def main(record_base_path):
 
         # generate greate summary table
         #if mode != 'estim':
-        utils.generate_summary_table(data_name,
-                                     [exp_name],
-                                     outputfolder,
-                                     None,
-                                     file_types)
+        summary_table.generate_summary_table([exp_name],
+                                             None)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

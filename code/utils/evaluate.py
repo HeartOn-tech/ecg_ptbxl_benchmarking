@@ -29,7 +29,8 @@ class Evaluation:
                  experiment_name,
                  data_name,
                  train_fold_max,
-                 eval_params):
+                 eval_params,
+                 excel_writer):
         # options
         self.eval_params = eval_params
         self.data_types_ext = self.eval_params['data_types'] # data types for processing
@@ -103,13 +104,19 @@ class Evaluation:
         self.classes = mlb.classes_
 
         # load actual class labels
-        self.load_labels()
+        if not self.load_labels():
+            print(self.evaluate_text, '\nError: y_<data_type>.npy file does not exist!')
+            self.state = False # False state of object
+            return
 
         self.out_text.append('data_type: ' + self.data_type_name) # data type for pdf first page only
 
         # check corectness of y_labels_train
         if 'y_labels_train' in locals():
             assert np.array_equal(y_labels_train, self.y_labels_dict['train']), 'y_labels_train is incorrect!'
+
+        # Set pd.ExcelWriter object
+        self.excel_writer = excel_writer
 
         # True state of object
         self.state = True
@@ -123,7 +130,11 @@ class Evaluation:
         self.y_labels_dict = {}
         for data_type in self.data_types_ext:
             name = data_type_to_name(data_type)
-            self.y_labels_dict[data_type] = np.load(os.path.join(self.data_folder, 'y_' + name + '.npy'), allow_pickle = True)
+            labels_path = os.path.join(self.data_folder, 'y_' + name + '.npy')
+            if os.path.isfile(labels_path): # file exists
+                self.y_labels_dict[data_type] = np.load(labels_path, allow_pickle = True)
+            else:
+                return False
 
         # unite train and valid labels (True or False)
         if self.use_train_valid_for_thr:
@@ -136,6 +147,7 @@ class Evaluation:
             self.data_type_name = self.data_types_ext[0]
             self.data_type_suffix = '_' + self.data_types_ext[0][0]
             #self.data_type_united = 'united' + self.data_type_suffix + '_thr_' + self.data_types_ext[1][0] + '_' + self.data_types_ext[2][0]
+
         self.data_type_name_thr = self.data_type_name + '_thr'
         self.file_type = 'folds' + self.data_type_suffix
 
@@ -146,6 +158,8 @@ class Evaluation:
         if hasattr(self, 'train_folds_range'):
             for (fold, data_type) in self.train_folds_range:
                 self.y_labels_dict[data_type] = self.y_labels_dict['train'][self.train_folds == fold]
+
+        return True
 
     # create head of table for model results
     def create_table(self, model_txt):
@@ -588,5 +602,10 @@ class Evaluation:
 
         if dfs_models: # dfs_models is not empty
             df_cc_models = pd.concat(dfs_models, ignore_index = True)
-            d_types_str = 'united_' + self.file_type + '_' + self.experiment_name.lower()
-            df_cc_models.to_csv(os.path.join(self.results_folder, d_types_str + '_results' + '.csv'), ';', index = False, decimal = ',')
+
+            if self.eval_params['save_to_csv']:
+                d_types_str = 'results_' + self.file_type + '_' + self.experiment_name.lower() + '_models'
+                df_cc_models.to_csv(os.path.join(self.results_folder, d_types_str + '.csv'), ';', index = False, decimal = ',')
+
+            if self.eval_params['save_to_excel'] and self.excel_writer:
+                df_cc_models.to_excel(self.excel_writer, sheet_name = self.experiment_name, index = False)

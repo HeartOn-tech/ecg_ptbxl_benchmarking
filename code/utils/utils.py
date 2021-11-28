@@ -132,7 +132,7 @@ def apply_thresholds(preds, thresholds):
 
 def load_dataset(data_name, path, sampling_rate, release=False):
     # if path.split('/')[-2] == 'ptbxl':
-    if data_name == 'ptbxl':
+    if data_name == 'PTBXL':
         # load and convert annotation data
         Y = pd.read_csv(os.path.join(path, 'ptbxl_database.csv'), index_col='ecg_id')
         Y.scp_codes = Y.scp_codes.apply(lambda x: ast.literal_eval(x))
@@ -364,153 +364,187 @@ def apply_standardizer(X, ss):
     return X_tmp
 
 # DOCUMENTATION STUFF
-def load_tables(exp, folder, selection, file_type):
 
-    if selection is None:
-        models = sorted(os.listdir(os.path.join(folder, exp, 'models')), key = str.lower)
-    else:
-        models = sorted(selection, key = str.lower)
-    # move 'ensemble' and 'naive' to the end of list
-    models.sort(key = lambda s: s == 'ensemble' or s == 'naive')
+class Summary_Table:
+    def __init__(self,
+                 data_name,
+                 folder,
+                 eval_params):
 
-    data_table = {}
+        self.data_name = data_name
+        self.folder = os.path.normpath(folder)
+        self.folder_name = self.folder.split(os.sep)[-1] # output folder name
+        self.eval_params = eval_params
 
-    for model in models:
-        res_path = os.path.join(folder, exp, 'models', model, 'results', file_type + '_results.csv')
+        if eval_params['use_train_valid_for_thr']: # base: train & valid, estim: test
+            self.file_type = 'folds_t_v'
+        else:                                      # base: train, estim: valid, test
+            self.file_type = 'folds_t'
 
-        if os.path.isfile(res_path): # file exists
-            table_types = pd.read_csv(res_path, index_col = 0).applymap(lambda x: locale.format_string("%.4f", x))
+        self.d_types_str = 'results_' + self.file_type + '_' + self.data_name.lower()
+
+        # set system local numeric prefences
+        locale.setlocale(locale.LC_NUMERIC, '')
+
+        if self.eval_params['save_to_excel']:
+            self.excel_writer = pd.ExcelWriter(os.path.join(self.folder, self.d_types_str + '_' + self.folder_name + '.xlsx'), mode = 'w', engine = 'openpyxl')
+            pd.DataFrame().to_excel(self.excel_writer, sheet_name = 'Overall', index = False)
+
+    def __del__(self):
+        if self.eval_params['save_to_excel']:
+            self.excel_writer.close()
+
+    def load_tables(self, exp, selection):
+
+        if selection is None:
+            models = sorted(os.listdir(os.path.join(self.folder, exp, 'models')), key = str.lower)
         else:
-            continue
+            models = sorted(selection, key = str.lower)
+        # move 'ensemble' and 'naive' to the end of list
+        models.sort(key = lambda s: s == 'ensemble' or s == 'naive')
 
-        for data_type in table_types.index:
-            table = table_types.loc[[data_type]]
-            table.insert(0, 'Model', model)
+        data_table = {}
 
-            if data_type in data_table:
-                data_table[data_type].append(table)
+        for model in models:
+            res_path = os.path.join(self.folder, exp, 'models', model, 'results', self.file_type + '_results.csv')
+
+            if os.path.isfile(res_path): # file exists
+                table_types = pd.read_csv(res_path, index_col = 0) # .applymap(lambda x: locale.format_string("%.4f", x))
             else:
-                data_table[data_type] = [table]
+                continue
 
-    df_cc_table = {}
-    for data_type in data_table.keys():
-        df_cc_table[data_type] = pd.concat(data_table[data_type], ignore_index = True)
+            for data_type in table_types.index:
+                table = table_types.loc[[data_type]]
+                table.insert(0, 'Model', model)
 
-    return df_cc_table
-
-def exp_table(exp, folder, selection, data_type):
-
-    if selection is None:
-        models = sorted(os.listdir(os.path.join(folder, exp, 'models')), key = str.lower)
-    else:
-        models = sorted(selection, key = str.lower)
-    # move 'ensemble' and 'naive' to the end of list
-    models.sort(key = lambda s: s == 'ensemble' or s == 'naive')
-
-    data = []
-    models_out = []
-    cols = []
-
-    for model in models:
-        res_path = os.path.join(folder, exp, 'models', model, 'results', data_type + '_results.csv') # 'test_results.csv'
-
-        if os.path.isfile(res_path): # file exists
-            me_res = pd.read_csv(res_path, index_col = 0)
-            #me_res.rename(columns = lambda x: x.replace('macro_auc', 'ROCAUC'), inplace = True)
-
-            if cols: # cols are not empty
-                assert me_res.columns.tolist() != cols, 'Columns in current table are different!'
-            else: # cols are empty
-                cols = me_res.columns.tolist()
-
-            mcol = []
-            for col in cols:
-                point = me_res.loc['point', col]
-                if set(['upper', 'lower']).issubset(me_res.index):
-                    #mean = me_res.loc['mean', col]
-                    unc = max(me_res.loc['upper', col] - point, point - me_res.loc['lower', col])
-                    mcol.append(locale.format_string("%.4f(%.2d)", (point, int(unc*1000))))
+                if data_type in data_table:
+                    data_table[data_type].append(table)
                 else:
-                    mcol.append(locale.format_string("%.4f", point))
-            data.append(mcol)
-            models_out.append(model)
+                    data_table[data_type] = [table]
 
-    if data: # data are not empty
-        data_array = np.array(data)
-        df = pd.DataFrame(data_array, columns = cols, index = models_out)
-        df.index.name = 'Model'
-        #df_index = df[df.index.isin(['naive', 'ensemble'])]
-        #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
-        #df = pd.concat([df_rest, df_index])
-        df.reset_index(level = 0, inplace = True)
-    else: # data are empty
-        df = pd.DataFrame()
+        df_cc_table = {}
+        for data_type in data_table.keys():
+            df_cc_table[data_type] = pd.concat(data_table[data_type], ignore_index = True)
 
-    return df
+        return df_cc_table
 
-# helper output function for markdown tables
-def print_table(df_table):
+    #def exp_table(exp, folder, selection, data_type):
 
-    for data_type in df_table.keys():
-        df = df_table[data_type]
+    #    if selection is None:
+    #        models = sorted(os.listdir(os.path.join(folder, exp, 'models')), key = str.lower)
+    #    else:
+    #        models = sorted(selection, key = str.lower)
+    #    # move 'ensemble' and 'naive' to the end of list
+    #    models.sort(key = lambda s: s == 'ensemble' or s == 'naive')
 
-        if df.loc[0, 'Model']: # value is not empty
-            md_source = '\ndata_type = ' + data_type
-            md_source += '\n'
-            # print column names
-            for i, col in enumerate(df.columns.values):
-                if i == 0:
-                    col = col.ljust(10)
-                else:
-                    md_source += '\t'
-                md_source += col
-            #md_source += ''
+    #    data = []
+    #    models_out = []
+    #    cols = []
 
-            for ind in df.index:
+    #    for model in models:
+    #        res_path = os.path.join(folder, exp, 'models', model, 'results', data_type + '_results.csv') # 'test_results.csv'
+
+    #        if os.path.isfile(res_path): # file exists
+    #            me_res = pd.read_csv(res_path, index_col = 0)
+    #            #me_res.rename(columns = lambda x: x.replace('macro_auc', 'ROCAUC'), inplace = True)
+
+    #            if cols: # cols are not empty
+    #                assert me_res.columns.tolist() != cols, 'Columns in current table are different!'
+    #            else: # cols are empty
+    #                cols = me_res.columns.tolist()
+
+    #            mcol = []
+    #            for col in cols:
+    #                point = me_res.loc['point', col]
+    #                if set(['upper', 'lower']).issubset(me_res.index):
+    #                    #mean = me_res.loc['mean', col]
+    #                    unc = max(me_res.loc['upper', col] - point, point - me_res.loc['lower', col])
+    #                    mcol.append(locale.format_string("%.4f(%.2d)", (point, int(unc*1000))))
+    #                else:
+    #                    mcol.append(locale.format_string("%.4f", point))
+    #            data.append(mcol)
+    #            models_out.append(model)
+
+    #    if data: # data are not empty
+    #        data_array = np.array(data)
+    #        df = pd.DataFrame(data_array, columns = cols, index = models_out)
+    #        df.index.name = 'Model'
+    #        #df_index = df[df.index.isin(['naive', 'ensemble'])]
+    #        #df_rest = df[~df.index.isin(['naive', 'ensemble'])]
+    #        #df = pd.concat([df_rest, df_index])
+    #        df.reset_index(level = 0, inplace = True)
+    #    else: # data are empty
+    #        df = pd.DataFrame()
+
+    #    return df
+
+    # helper output function for markdown tables
+    def print_table(self, df_table):
+
+        for data_type in df_table.keys():
+            df = df_table[data_type]
+
+            if df.loc[0, 'Model']: # value is not empty
+                md_source = '\ndata_type = ' + data_type
                 md_source += '\n'
-                for i, val in enumerate(df.loc[ind]):
+                # print column names
+                for i, col in enumerate(df.columns.values):
                     if i == 0:
-                        val = val.replace('fastai_', '').ljust(10)
+                        md_source += col.ljust(10)
                     else:
-                        md_source += '\t'
-                    md_source += val
+                        md_source += '\t' + col
                 #md_source += ''
 
-            #md_source += '\n'
-            print(md_source)
+                for ind in df.index:
+                    md_source += '\n'
+                    for i, val in enumerate(df.loc[ind]):
+                        if i == 0:
+                            md_source += val.replace('fastai_', '').ljust(10)
+                        else:
+                            md_source += '\t' + locale.format_string("%.4f", val)
+                    #md_source += ''
 
-def generate_summary_table(data_name, exps, folder, selection = None, file_types = []):
-    # set system local numeric prefences
-    locale.setlocale(locale.LC_NUMERIC, '')
+                #md_source += '\n'
+                print(md_source)
 
-    output_folder_name = os.path.normpath(folder).split(os.sep)[-1] # output folder name
-    #exps = ['exp0', 'exp1', 'exp1.1', 'exp1.1.1', 'exp2', 'exp3']
-    #df_cc_list = []
-    #data_types_out = []
+    def generate_summary_table(self,
+                               exps,
+                               selection):
 
-    for file_type in file_types:
-        df_head = pd.DataFrame({'Model': ['folder: ' + output_folder_name + ', '
-                                          + 'data_name: ' + data_name,
-                                          'data_type:']})
+        #exps = ['exp0', 'exp1', 'exp1.1', 'exp1.1.1', 'exp2', 'exp3']
+        #df_cc_list = []
+        #data_types_out = []
+
+        #for file_type in file_types:
+        df_head = pd.DataFrame({'Model': ['folder: ' + self.folder_name + ', '
+                                            + 'data_name: ' + self.data_name,
+                                            'data_type:']})
 
         dfs_exps = [] # dataframes of experiments related to whole table
 
         for exp in exps:
             #df = exp_table(exp, folder, selection, data_type)
-            df_table = load_tables(exp, folder, selection, file_type)
+            df_table = self.load_tables(exp, selection)
             dfs_types = [] # dataframes of data types related to experiment
 
             for data_type in df_table.keys():
                 #if not df_table[data_type]: # df is not empty
                 dfs = [] # dataframes of head and models related to data type
+                col_name1 = df_table[data_type].columns[1]
+                if self.eval_params['save_to_csv']:
+                    df_type = copy.deepcopy(df_table[data_type])
+                    df_type[col_name1] = df_type[col_name1].apply(lambda x: str(x).replace('.', ','))
+                else:
+                    df_type = df_table[data_type]
 
                 if not dfs_exps: # exps_out is empty
-                    df_head[df_table[data_type].columns[1]] = ['', data_type]
+                    df_head[col_name1] = ['', data_type]
                     dfs.append(df_head)
 
                 #if not dfs:  # dfs is empty
-                dfs.append(pd.DataFrame({'Model': ['', exp]}))
-                dfs.append(df_table[data_type])
+                dfs.append(pd.DataFrame({'Model': ['', exp],
+                                         col_name1: ['', '']}))
+                dfs.append(df_type)
                 df_cc = pd.concat(dfs, ignore_index = True)
 
                 if dfs_types: # dfs_types is not empty
@@ -522,8 +556,8 @@ def generate_summary_table(data_name, exps, folder, selection = None, file_types
                 dfs_exps.append(df_cc_types)
 
                 print('\n==================================================================')
-                print(data_name + ' results, file = ' + file_type + ', exp = ' + exp) #, end = ''
-                print_table(df_table)
+                print(self.data_name + ' results, file = ' + self.file_type + ', exp = ' + exp) #, end = ''
+                self.print_table(df_table)
 
         if dfs_exps: # dfs_exps is not empty
             # equalize columns if required
@@ -541,25 +575,29 @@ def generate_summary_table(data_name, exps, folder, selection = None, file_types
                 dfs_exps[i].columns = dfs_exps[i_cols_max].columns
 
             df_cc_exps = pd.concat(dfs_exps, ignore_index = True)
-            d_types_str = 'united_' + file_type + '_' + data_name.lower()
-            df_cc_exps.to_csv(os.path.join(folder, d_types_str + '_results' + '.csv'), ';', index = False) #, decimal = ','
 
-        #if not dfs: # dfs is empty
-        #    continue
+            if self.eval_params['save_to_csv']:
+                df_cc_exps.to_csv(os.path.join(self.folder, self.d_types_str + '_overall' + '.csv'), ';', index = False, decimal = ',')
 
-        #df_cc = pd.concat(dfs, ignore_index = True)
-        #df_cc.to_csv(os.path.join(folder, data_type + '_' + data_name.lower() + '_results' + '.csv'), ';', index = False) #, decimal = ','
+            if self.eval_params['save_to_excel'] and self.excel_writer:
+                df_cc_exps.to_excel(self.excel_writer, sheet_name = 'Overall', index = False)
+
+            #if not dfs: # dfs is empty
+            #    continue
+
+            #df_cc = pd.concat(dfs, ignore_index = True)
+            #df_cc.to_csv(os.path.join(folder, data_type + '_' + data_name.lower() + '_results' + '.csv'), ';', index = False) #, decimal = ','
+
+            #if df_cc_list: # df_cc_list is not empty
+            #    df_cc.drop(df_cc.columns[0], axis = 'columns', inplace = True) # drop 'Model' column
+            #df_cc_list.append(df_cc)
+            #data_types_out.append(data_type)
+
 
         #if df_cc_list: # df_cc_list is not empty
-        #    df_cc.drop(df_cc.columns[0], axis = 'columns', inplace = True) # drop 'Model' column
-        #df_cc_list.append(df_cc)
-        #data_types_out.append(data_type)
-
-
-    #if df_cc_list: # df_cc_list is not empty
-    #    if len(df_cc_list) > 1:
-    #        d_types_str = 'united_' + file_types_suffix
-    #    else: # len == 1
-    #        d_types_str = data_types_out[0]
-    #    df_cc_cols = pd.concat(df_cc_list, axis = 'columns')
-    #    df_cc_cols.to_csv(os.path.join(folder, d_types_str + '_' + data_name.lower() + '_results' + '.csv'), ';', index = False) #, decimal = ','
+        #    if len(df_cc_list) > 1:
+        #        d_types_str = 'united_' + file_types_suffix
+        #    else: # len == 1
+        #        d_types_str = data_types_out[0]
+        #    df_cc_cols = pd.concat(df_cc_list, axis = 'columns')
+        #    df_cc_cols.to_csv(os.path.join(folder, d_types_str + '_' + data_name.lower() + '_results' + '.csv'), ';', index = False) #, decimal = ','
