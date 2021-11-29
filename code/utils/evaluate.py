@@ -66,10 +66,10 @@ class Evaluation:
         self.train_fold_max = train_fold_max
 
         # create column names
-        self.dtype_list = [('label_i', str),
+        self.dtype_list = [('label_i', int),
                            ('label', str),
-                           ('Np', str),
-                           ('Nn', str),
+                           ('Np', int),
+                           ('Nn', int),
                            ('ROCAUC', float)]
 
         for k in range(self.N_thrs): # loop for N_thr
@@ -125,9 +125,22 @@ class Evaluation:
     def __bool__(self):
         return self.state
 
+    # Np Nn calculation
+    def calc_Np_Nn(self, y_labels):
+
+        Np_Nn = np.zeros((y_labels.shape[1], 2), dtype = int)
+        for l in range(Np_Nn.shape[0]): # loop for labels
+            Np_Nn[l, 0] = np.count_nonzero(y_labels[:, l]) # Np
+            Np_Nn[l, 1] = y_labels.shape[0] - Np_Nn[l, 0]  # Nn
+
+        return Np_Nn
+
     # load actual class labels
     def load_labels(self):
+
         self.y_labels_dict = {}
+        self.Np_Nn_dict = {}
+
         for data_type in self.data_types_ext:
             name = data_type_to_name(data_type)
             labels_path = os.path.join(self.data_folder, 'y_' + name + '.npy')
@@ -135,6 +148,8 @@ class Evaluation:
                 self.y_labels_dict[data_type] = np.load(labels_path, allow_pickle = True)
             else:
                 return False
+
+            self.Np_Nn_dict[data_type] = self.calc_Np_Nn(self.y_labels_dict[data_type])
 
         # unite train and valid labels (True or False)
         if self.use_train_valid_for_thr:
@@ -153,31 +168,36 @@ class Evaluation:
 
         self.N_labels = self.y_labels_thr.shape[1]
         self.label_inds = range(self.N_labels)
+        self.Np_Nn_thr = self.calc_Np_Nn(self.y_labels_thr)
 
         # add labels of train folds
         if hasattr(self, 'train_folds_range'):
             for (fold, data_type) in self.train_folds_range:
                 self.y_labels_dict[data_type] = self.y_labels_dict['train'][self.train_folds == fold]
+                self.Np_Nn_dict[data_type] = self.calc_Np_Nn(self.y_labels_dict[data_type])
 
         return True
 
     # create head of table for model results
-    def create_table(self, model_txt):
+    def create_table(self, Np_Nn, model_txt):
         df_res_table = pd.DataFrame(np.empty(0, dtype = self.dtypes))
-        label_ind_arr = [str(i) for i in self.label_inds]
-        df_res_table.loc[:, 'label_i'] = [*['', model_txt, 'Mean'], *label_ind_arr]
-        df_res_table.loc[:, 'label'] = [*['', '', ''], *self.classes]
+        label_ind_arr = [i for i in self.label_inds]
+        gap = ['', '', '']
+        df_res_table.loc[:, self.dtype_list[0][0]] = [*['', model_txt, 'Mean'], *label_ind_arr] # label_i
+        df_res_table.loc[:, self.dtype_list[1][0]] = [*gap, *self.classes]  # label
+        df_res_table.loc[:, self.dtype_list[2][0]] = [*gap, *Np_Nn[:, 0]]   # Np
+        df_res_table.loc[:, self.dtype_list[3][0]] = [*gap, *Np_Nn[:, 1]]   # Nn
 
         return df_res_table
 
     # create head of result table
     def create_res_table(self, data_type_name):
         # header table text
-        return pd.DataFrame({'label_i': [self.out_text[0] + ', '
-                                         + self.data_exp_text,
-                                         'data_type:'],
-                             'label': ['', ''],
-                             'Np': ['', data_type_name]})
+        gap = ['', '']
+        return pd.DataFrame({self.dtype_list[0][0]: [self.out_text[0] + ', ' + self.data_exp_text, 'data_type:'], # label_i
+                             self.dtype_list[1][0]: gap,   # label
+                             self.dtype_list[2][0]: ['', data_type_name],   # Np
+                             self.dtype_list[3][0]: gap})  # Nn
 
     # calc conf matrix for unique sorted thresholds
     def conf_matrix(self, y_true, y_pred):
@@ -337,7 +357,7 @@ class Evaluation:
     def challenge_metrics_thr(self, y_preds_thr, rpath, model_txt):
 
         # create df_res_table
-        df_res_table = self.create_table(model_txt)
+        df_res_table = self.create_table(self.Np_Nn_thr, model_txt)
 
         path_conf_m_table = rpath + self.data_type_name_thr + '_conf_mat'
 
@@ -377,12 +397,10 @@ class Evaluation:
             ind_min_list = self.find_optimal_threshold(fpr_fnr_etc)
 
             # write text to pdf
-            Np = np.count_nonzero(y_labels_col)
-            Nn = self.y_labels_thr.shape[0] - Np
+            #Np = np.count_nonzero(y_labels_col)
+            #Nn = self.y_labels_thr.shape[0] - Np
 
-            values = [str(Np),
-                        str(Nn),
-                        roc_auc]
+            values = [roc_auc]
 
             for k in range(self.N_thrs): # loop for N_thr
                 values.append(y_pred_uniq[ind_min_list[k]])
@@ -390,7 +408,8 @@ class Evaluation:
                 values.append(fpr_fnr_etc[ind_min_list[k], 1])
 
             if self.eval_params['save_pdf_files']:
-                values_txt = []
+                values_txt = [str(self.Np_Nn_thr[l, 0]),
+                              str(self.Np_Nn_thr[l, 1])]
                 for val in values:
                     if isinstance(val, float):
                         values_txt.append('{:.4f}'.format(val)) # float
@@ -417,7 +436,7 @@ class Evaluation:
                 df_fpr_fnr_table_list.append(df_fpr_fnr_table)
 
             # write values to table
-            df_res_table.iloc[l + 3, 2:] = values
+            df_res_table.iloc[l + 3, 4:] = values
 
         if self.eval_params['save_pdf_files']:
             # close pdf file
@@ -438,19 +457,18 @@ class Evaluation:
     # y_preds - predicted relations to classes n x m
     # thr_arr - thresholds for estimation k x m
     def challenge_metrics(self, y_labels, y_preds, thr_arr, model_txt, data_type):
-        # create df_res_table
-        df_res_table = self.create_table(model_txt)
 
-        # Np, Nn, roc_auc
-        Np_Nn = np.zeros((self.N_labels, 2), dtype = int)
+        Np_Nn = self.Np_Nn_dict[data_type]
+        # create df_res_table
+        df_res_table = self.create_table(Np_Nn, model_txt)
+
+        #ROC_AUC
         roc_auc = np.zeros((self.N_labels, 1), dtype = float)
         for l in self.label_inds: # loop for labels
-            Np_Nn[l, 0] = np.count_nonzero(y_labels[:, l]) # Np np.sum(conf_matr_thr[l, 1, :])
-            Np_Nn[l, 1] = y_labels.shape[0] - Np_Nn[l, 0]     # Nn np.sum(conf_matr_thr[l, 0, :])
             roc_auc[l, 0] = metrics.roc_auc_score(y_labels[:, l], y_preds[:, l]) # ROC AUC
 
         # write values to table
-        df_res_table.iloc[3:, 2:4] = Np_Nn # Np and Nn
+        #df_res_table.iloc[3:, 2:4] = Np_Nn # Np and Nn
         df_res_table.iloc[3:, 4] = roc_auc # ROC AUC
 
         # FPR, FNR
@@ -473,7 +491,7 @@ class Evaluation:
             # write values to table
             df_res_table.iloc[3:, column_i] = thr_arr[k, :] # thri
             column_i += 1
-            df_res_table.iloc[3:, column_i:(column_i + 2)] = fpr_fnr_arr # ROC AUC
+            df_res_table.iloc[3:, column_i:(column_i + 2)] = fpr_fnr_arr # FPRi FNRi
             column_i += 2
 
         # calc mean values
