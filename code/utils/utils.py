@@ -389,6 +389,8 @@ class Summary_Table:
         if self.eval_params['save_to_excel']:
             self.excel_writer = pd.ExcelWriter(os.path.join(self.folder, self.d_types_str + '_' + self.folder_name + '.xlsx'), mode = 'w', engine = 'openpyxl')
             pd.DataFrame().to_excel(self.excel_writer, sheet_name = 'Overall', index = False)
+        else:
+            self.excel_writer = None
 
     def __del__(self):
         if self.eval_params['save_to_excel']:

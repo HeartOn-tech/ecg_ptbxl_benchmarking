@@ -84,12 +84,15 @@ class Evaluation:
 
         # load df table, ind matrix and MultiLabelBinarizer object
         mlb_path = os.path.join(self.data_folder, 'tab_ind_mlb.pkl')
-        if self.eval_params['add_train_folds'] and os.path.isfile(mlb_path): # add_train_folds = True and file exists
+
+        if os.path.isfile(mlb_path): # file exists
             with open(mlb_path, 'rb') as tokenizer:
                 [self.df_labels_full, y_labels_full, mlb] = pickle.load(tokenizer)
-                self.train_folds = self.df_labels_full.loc[self.df_labels_full['strat_fold'] <= self.train_fold_max, 'strat_fold'].to_numpy()
-                self.train_folds_range = [(fold, 'tr_fold_' + str(fold)) for fold in range(1, self.train_fold_max + 1)]
-                y_labels_train = y_labels_full[self.df_labels_full['strat_fold'] <= self.train_fold_max] # for checking correctness
+                # form data for multi train folds case
+                if self.eval_params['add_train_folds']:
+                    self.train_folds = self.df_labels_full.loc[self.df_labels_full['strat_fold'] <= self.train_fold_max, 'strat_fold'].to_numpy()
+                    self.train_folds_range = [(fold, 'tr_fold_' + str(fold)) for fold in range(1, self.train_fold_max + 1)]
+                    self.y_labels_train_tab = y_labels_full[self.df_labels_full['strat_fold'] <= self.train_fold_max] # for checking correctness
         else:
             mlb_path = os.path.join(self.data_folder, 'mlb.pkl')
             if os.path.isfile(mlb_path):
@@ -110,10 +113,6 @@ class Evaluation:
             return
 
         self.out_text.append('data_type: ' + self.data_type_name) # data type for pdf first page only
-
-        # check corectness of y_labels_train
-        if 'y_labels_train' in locals():
-            assert np.array_equal(y_labels_train, self.y_labels_dict['train']), 'y_labels_train is incorrect!'
 
         # Set pd.ExcelWriter object
         self.excel_writer = excel_writer
@@ -146,10 +145,13 @@ class Evaluation:
             labels_path = os.path.join(self.data_folder, 'y_' + name + '.npy')
             if os.path.isfile(labels_path): # file exists
                 self.y_labels_dict[data_type] = np.load(labels_path, allow_pickle = True)
+                self.Np_Nn_dict[data_type] = self.calc_Np_Nn(self.y_labels_dict[data_type])
             else:
                 return False
 
-            self.Np_Nn_dict[data_type] = self.calc_Np_Nn(self.y_labels_dict[data_type])
+        # check corectness of y_labels_train
+        if hasattr(self, 'y_labels_train_tab'):
+            assert np.array_equal(self.y_labels_train_tab, self.y_labels_dict[self.data_types_ext[0]]), 'y_labels_train is not equal to data from original table!' # 'train'
 
         # unite train and valid labels (True or False)
         if self.use_train_valid_for_thr:
@@ -514,9 +516,10 @@ class Evaluation:
         if hasattr(self, 'train_folds_range'):
             for (fold, data_type) in self.train_folds_range:
                 data_types_estim.append(data_type)
-            # add validation fold
-            if self.use_train_valid_for_thr:
-                data_types_estim.append(self.data_types_ext[1])
+
+        # add validation fold
+        if self.use_train_valid_for_thr:
+            data_types_estim.append(self.data_types_ext[1])
 
         #res_table_list = {}
         #for data_type in data_types_estim:
