@@ -191,11 +191,22 @@ def load_raw_data_ptbxl(df, sampling_rate, path):
             pickle.dump(data, open(fullpath, 'wb'), protocol=4)
     return data
 
-def compute_label_aggregations(df, folder, ctype):
+# MultiLabelBinarizer: change 'PVC' to 'VPC'
+change_class_dict = {'PVC': 'VPC'}
+
+def mlb_change_class(mlb):
+    key = next(iter(change_class_dict))
+    mlb.classes_[mlb.classes_ == key] = change_class_dict[key]
+    mlb.fit([mlb.classes_])
+    return mlb
+
+def compute_label_aggregations(df, folder, ctype, change_class):
 
     df['scp_codes_len'] = df.scp_codes.apply(lambda x: len(x))
 
     aggregation_df = pd.read_csv(os.path.join(folder, 'scp_statements.csv'), index_col=0)
+    if change_class:
+        aggregation_df.rename(index = change_class_dict, inplace = True)
 
     if ctype in ['diagnostic', 'subdiagnostic', 'superdiagnostic']:
 
@@ -267,14 +278,19 @@ def compute_label_aggregations(df, folder, ctype):
 
     return df
 
-def select_data(XX, YY, ctype, min_samples, outputfolder, save_mlb_file):
+def select_data(XX, YY, ctype, min_samples, outputfolder, eval_params, mlb, save):
     # convert multilabel to multi-hot
-    mlb = MultiLabelBinarizer()
+    mlb_loaded = bool(mlb)
+    if mlb_loaded:
+        mlb = mlb_change_class(mlb)
+    else:
+        mlb = MultiLabelBinarizer()
 
     if ctype == 'diagnostic':
         X = XX[YY.diagnostic_len > 0]
         Y = YY[YY.diagnostic_len > 0]
-        mlb.fit(Y.diagnostic.values)
+        if not mlb_loaded:
+            mlb.fit(Y.diagnostic.values)
         y = mlb.transform(Y.diagnostic.values)
     elif ctype == 'subdiagnostic':
         counts = pd.Series(np.concatenate(YY.subdiagnostic.values)).value_counts()
@@ -283,7 +299,8 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, save_mlb_file):
         YY['subdiagnostic_len'] = YY.subdiagnostic.apply(lambda x: len(x))
         X = XX[YY.subdiagnostic_len > 0]
         Y = YY[YY.subdiagnostic_len > 0]
-        mlb.fit(Y.subdiagnostic.values)
+        if not mlb_loaded:
+            mlb.fit(Y.subdiagnostic.values)
         y = mlb.transform(Y.subdiagnostic.values)
     elif ctype == 'superdiagnostic':
         counts = pd.Series(np.concatenate(YY.superdiagnostic.values)).value_counts()
@@ -292,7 +309,8 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, save_mlb_file):
         YY['superdiagnostic_len'] = YY.superdiagnostic.apply(lambda x: len(x))
         X = XX[YY.superdiagnostic_len > 0]
         Y = YY[YY.superdiagnostic_len > 0]
-        mlb.fit(Y.superdiagnostic.values)
+        if not mlb_loaded:
+            mlb.fit(Y.superdiagnostic.values)
         y = mlb.transform(Y.superdiagnostic.values)
     elif ctype == 'form':
         # filter
@@ -303,7 +321,8 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, save_mlb_file):
         # select
         X = XX[YY.form_len > 0]
         Y = YY[YY.form_len > 0]
-        mlb.fit(Y.form.values)
+        if not mlb_loaded:
+            mlb.fit(Y.form.values)
         y = mlb.transform(Y.form.values)
     elif ctype == 'rhythm':
         # filter 
@@ -314,7 +333,8 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, save_mlb_file):
         # select
         X = XX[YY.rhythm_len > 0]
         Y = YY[YY.rhythm_len > 0]
-        mlb.fit(Y.rhythm.values)
+        if not mlb_loaded:
+            mlb.fit(Y.rhythm.values)
         y = mlb.transform(Y.rhythm.values)
     elif ctype == 'all':
         # filter 
@@ -325,33 +345,37 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, save_mlb_file):
         # select
         X = XX[YY.all_scp_len > 0]
         Y = YY[YY.all_scp_len > 0]
-        mlb.fit(Y.all_scp.values)
+        if not mlb_loaded:
+            mlb.fit(Y.all_scp.values)
         y = mlb.transform(Y.all_scp.values)
     else:
         pass
 
+    suffix = eval_params['suffix']
     # save LabelBinarizer
-    if save_mlb_file:
-        with open(outputfolder+'mlb.pkl', 'wb') as tokenizer:
+    if save and eval_params['save_mlb_file']:
+        with open(outputfolder + 'mlb' + suffix + '.pkl', 'wb') as tokenizer:
             pickle.dump(mlb, tokenizer)
 
     # save data:
     # Y - table based on csv file
     # y - indicator matrix
     # mlb - LabelBinarizer
-    with open(outputfolder+'tab_ind_mlb.pkl', 'wb') as tokenizer:
-        pickle.dump([Y, y, mlb], tokenizer)
+    if save and eval_params['save_tab_ind_mlb_file']:
+        with open(outputfolder + 'tab_ind_mlb' + suffix + '.pkl', 'wb') as tokenizer:
+            pickle.dump([YY if suffix else Y, y, mlb], tokenizer)
 
     return X, Y, y, mlb
 
-def preprocess_signals(X_train, X_validation, X_test, outputfolder):
+def preprocess_signals(X_train, X_validation, X_test, outputfolder, eval_params):
     # Standardize data such that mean 0 and variance 1
     ss = StandardScaler()
     ss.fit(np.vstack(X_train).flatten()[:,np.newaxis].astype(float))
     
     # Save Standardizer data
-    with open(outputfolder+'standard_scaler.pkl', 'wb') as ss_file:
-        pickle.dump(ss, ss_file)
+    if 'data_set' not in eval_params:
+        with open(outputfolder+'standard_scaler.pkl', 'wb') as ss_file:
+            pickle.dump(ss, ss_file)
 
     return apply_standardizer(X_train, ss), apply_standardizer(X_validation, ss), apply_standardizer(X_test, ss)
 
@@ -375,11 +399,12 @@ class Summary_Table:
         self.folder = os.path.normpath(folder)
         self.folder_name = self.folder.split(os.sep)[-1] # output folder name
         self.eval_params = eval_params
+        self.suffix = self.eval_params['suffix']
 
         if eval_params['use_train_valid_for_thr']: # base: train & valid, estim: test
-            self.file_type = 'folds_t_v'
+            self.file_type = 'folds_t_v' + self.suffix
         else:                                      # base: train, estim: valid, test
-            self.file_type = 'folds_t'
+            self.file_type = 'folds_t' + self.suffix
 
         self.d_types_str = 'results_' + self.file_type + '_' + self.data_name.lower()
 

@@ -292,7 +292,7 @@ class fastai_model(ClassificationModel):
 
         learn.save(self.name) #even for early stopping the best model will have been loaded again
     
-    def predict(self, X, filename):
+    def predict(self, X, filename, dataoutputfolder = None):
         X = [l.astype(np.float32) for l in X]
         y_dummy = [np.ones(self.num_classes,dtype=np.float32) for _ in range(len(X))]
         

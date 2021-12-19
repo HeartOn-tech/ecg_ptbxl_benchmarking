@@ -61,18 +61,47 @@ class SCP_Experiment():
             os.makedirs(os.path.join(exp_folder, 'data'))
 
     def prepare(self):
+
+        if 'data_set' in self.eval_params:
+            data_set = self.eval_params['data_set']
+            data_name = data_set['data_name']
+            task = data_set['task']
+            datafolder = data_set['datafolder']
+        else:
+            data_name = self.data_name
+            task = self.task
+            datafolder = self.datafolder
+
+        self.suffix = self.eval_params['suffix']
+
         # Load data
-        self.data, self.raw_labels = utils.load_dataset(self.data_name, self.datafolder, self.sampling_frequency)
+        self.raw_data, self.raw_labels = utils.load_dataset(data_name, datafolder, self.sampling_frequency)
 
         # Preprocess label data
-        self.labels = utils.compute_label_aggregations(self.raw_labels, self.datafolder, self.task)
+        self.labels = utils.compute_label_aggregations(self.raw_labels, datafolder, task, bool(self.suffix))
+
+        if 'data_set' in self.eval_params:
+            mlb_path = os.path.join(self.outputfolder, self.experiment_name, 'data', 'tab_ind_mlb.pkl')
+            if os.path.isfile(mlb_path): # file exists
+                with open(mlb_path, 'rb') as tokenizer:
+                    _, _, mlb = pickle.load(tokenizer)
+                    self.n_classes = len(mlb.classes_)
+            else:
+                raise Exception('mlb file does not exist!')
+        else:
+            mlb = None
 
         # Select relevant data and convert to one-hot
-        self.data, self.labels, self.Y, _ = utils.select_data(self.data, self.labels, self.task, self.min_samples, self.outputfolder+self.experiment_name+'/data/', self.eval_params['save_mlb_file'])
+        self.data, self.labels, self.Y, _ = utils.select_data(self.raw_data, self.labels, task, self.min_samples, self.outputfolder + self.experiment_name + '/data/', self.eval_params, mlb, not bool(self.suffix))
+
+        if 'data_set' in self.eval_params:
+            self.labels_ds = utils.compute_label_aggregations(self.raw_labels, datafolder, self.task, bool(self.suffix))
+            utils.select_data(self.raw_data, self.labels_ds, self.task, self.min_samples, self.outputfolder + self.experiment_name + '/data/', self.eval_params, mlb, True)
+
         self.input_shape = self.data[0].shape
 
-        if self.mode == 'eval':
-            return
+        #if self.mode == 'eval':
+        #    return
         
         # 10th fold for testing (9th for now)
         self.X_test = self.data[self.labels.strat_fold == self.test_fold]
@@ -85,13 +114,15 @@ class SCP_Experiment():
         self.y_train = self.Y[self.labels.strat_fold <= self.train_fold]
 
         # Preprocess signal data
-        self.X_train, self.X_val, self.X_test = utils.preprocess_signals(self.X_train, self.X_val, self.X_test, self.outputfolder+self.experiment_name+'/data/')
-        self.n_classes = self.y_train.shape[1]
+        self.X_train, self.X_val, self.X_test = utils.preprocess_signals(self.X_train, self.X_val, self.X_test, self.outputfolder + self.experiment_name + '/data/', self.eval_params)
 
         # save train and test labels
-        self.y_train.dump(self.outputfolder + self.experiment_name+ '/data/y_train.npy')
-        self.y_val.dump(self.outputfolder + self.experiment_name+ '/data/y_val.npy')
-        self.y_test.dump(self.outputfolder + self.experiment_name+ '/data/y_test.npy')
+        if not hasattr(self, 'n_classes'):
+            self.n_classes = self.Y.shape[1]
+
+        self.y_train.dump(self.outputfolder + self.experiment_name+ '/data/y_train' + self.suffix + '.npy')
+        self.y_val.dump(self.outputfolder + self.experiment_name+ '/data/y_val' + self.suffix + '.npy')
+        self.y_test.dump(self.outputfolder + self.experiment_name+ '/data/y_test' + self.suffix + '.npy')
 
         modelname = 'naive'
         # create most naive predictions via simple mean in training
@@ -103,12 +134,13 @@ class SCP_Experiment():
             os.makedirs(mpath+'results/')
 
         mean_y = np.mean(self.y_train, axis=0)
-        np.array([mean_y]*len(self.y_train)).dump(mpath + 'y_train_pred.npy')
-        np.array([mean_y]*len(self.y_test)).dump(mpath + 'y_test_pred.npy')
-        np.array([mean_y]*len(self.y_val)).dump(mpath + 'y_val_pred.npy')
+        np.array([mean_y]*len(self.y_train)).dump(mpath + 'y_train_pred' + self.suffix + '.npy')
+        np.array([mean_y]*len(self.y_val)).dump(mpath + 'y_val_pred' + self.suffix + '.npy')
+        np.array([mean_y]*len(self.y_test)).dump(mpath + 'y_test_pred' + self.suffix + '.npy')
 
     def perform(self):
 
+        # predict and dump
         for model_description in self.models:
             modelname = model_description['modelname']
             modeltype = model_description['modeltype']
@@ -121,12 +153,10 @@ class SCP_Experiment():
             if not os.path.exists(mpath+'results/'):
                 os.makedirs(mpath+'results/')
 
-            n_classes = self.Y.shape[1]
-
             if self.mode == 'finetune':
                 pretrained = True
                 pretrainedfolder = mpath
-                n_classes_pretrained = n_classes
+                n_classes_pretrained = self.n_classes
             else:
                 pretrained = False
                 pretrainedfolder = None
@@ -135,16 +165,16 @@ class SCP_Experiment():
             # load respective model
             if modeltype == 'WAVELET':
                 from models.wavelet import WaveletModel
-                model = WaveletModel(modelname, n_classes, self.sampling_frequency, mpath, self.input_shape, **modelparams)
+                model = WaveletModel(modelname, self.n_classes, self.sampling_frequency, mpath, self.input_shape, **modelparams)
             elif modeltype == "fastai_model":
                 from models.fastai_model import fastai_model
                 #modelparams['epochs'] = 5
                 #modelparams['epochs_finetuning'] = 5
-                model = fastai_model(modelname, n_classes, self.sampling_frequency, mpath, self.input_shape, pretrained, pretrainedfolder = pretrainedfolder, n_classes_pretrained = n_classes_pretrained, **modelparams)
+                model = fastai_model(modelname, self.n_classes, self.sampling_frequency, mpath, self.input_shape, pretrained, pretrainedfolder = pretrainedfolder, n_classes_pretrained = n_classes_pretrained, **modelparams)
             elif modeltype == "YOUR_MODEL_TYPE":
                 # YOUR MODEL GOES HERE!
                 from models.your_model import YourModel
-                model = YourModel(modelname, n_classes, self.sampling_frequency, mpath, self.input_shape, **modelparams)
+                model = YourModel(modelname, self.n_classes, self.sampling_frequency, mpath, self.input_shape, **modelparams)
             else:
                 assert(True)
                 break
@@ -153,10 +183,14 @@ class SCP_Experiment():
             if self.mode in ['fit', 'finetune']:
                 model.fit(self.X_train, self.y_train, self.X_val, self.y_val)
 
-            # predict and dump
-            model.predict(self.X_train, 'train').dump(mpath+'y_train_pred.npy')
-            model.predict(self.X_val, 'val').dump(mpath+'y_val_pred.npy')
-            model.predict(self.X_test, 'test').dump(mpath+'y_test_pred.npy')
+            if 'data_set' in self.eval_params:
+                dataoutputfolder = self.outputfolder + self.eval_params['data_set']['exp_name'] + '/models/' + modelname + '/'
+            else:
+                dataoutputfolder = None
+
+            model.predict(self.X_train, 'train', dataoutputfolder).dump(mpath + 'y_train_pred' + self.suffix + '.npy')
+            model.predict(self.X_val, 'val', dataoutputfolder).dump(mpath + 'y_val_pred' + self.suffix + '.npy')
+            model.predict(self.X_test, 'test', dataoutputfolder).dump(mpath + 'y_test_pred' + self.suffix + '.npy')
 
         modelname = 'ensemble'
         # create ensemble predictions via simple mean across model predictions (except naive predictions)
@@ -166,18 +200,19 @@ class SCP_Experiment():
             os.makedirs(ensemblepath)
         if not os.path.exists(ensemblepath+'results/'):
             os.makedirs(ensemblepath+'results/')
+
         # load all predictions
         ensemble_train, ensemble_val, ensemble_test = [],[],[]
         for model_description in os.listdir(self.outputfolder+self.experiment_name+'/models/'):
             if not model_description in ['ensemble', 'naive']:
                 mpath = self.outputfolder+self.experiment_name+'/models/'+model_description+'/'
-                ensemble_train.append(np.load(mpath+'y_train_pred.npy', allow_pickle=True))
-                ensemble_val.append(np.load(mpath+'y_val_pred.npy', allow_pickle=True))
-                ensemble_test.append(np.load(mpath+'y_test_pred.npy', allow_pickle=True))
+                ensemble_train.append(np.load(mpath+'y_train_pred' + self.suffix + '.npy', allow_pickle=True))
+                ensemble_val.append(np.load(mpath+'y_val_pred' + self.suffix + '.npy', allow_pickle=True))
+                ensemble_test.append(np.load(mpath+'y_test_pred' + self.suffix + '.npy', allow_pickle=True))
         # dump mean predictions
-        np.array(ensemble_train).mean(axis=0).dump(ensemblepath + 'y_train_pred.npy')
-        np.array(ensemble_val).mean(axis=0).dump(ensemblepath + 'y_val_pred.npy')
-        np.array(ensemble_test).mean(axis=0).dump(ensemblepath + 'y_test_pred.npy')
+        np.array(ensemble_train).mean(axis=0).dump(ensemblepath + 'y_train_pred' + self.suffix + '.npy')
+        np.array(ensemble_val).mean(axis=0).dump(ensemblepath + 'y_val_pred' + self.suffix + '.npy')
+        np.array(ensemble_test).mean(axis=0).dump(ensemblepath + 'y_test_pred' + self.suffix + '.npy')
 
     def evaluate(self,
                  n_bootstraping_samples = 100,
@@ -204,10 +239,12 @@ class SCP_Experiment():
         #    sample_inds['test'] = np.array([range(len(y_labels['test']))]) # y_test
 
         # create Evaluation object
+        data_types = self.eval_params['data_types']
         eval_obj = evaluate.Evaluation(self.outputfolder,
-                                       self.experiment_name,
                                        self.data_name,
-                                       self.train_fold,
+                                       self.experiment_name,
+                                       self.task,
+                                       {data_types[0]: self.train_fold, data_types[1]: self.val_fold, data_types[2]: self.test_fold},
                                        self.eval_params,
                                        self.excel_writer)
 

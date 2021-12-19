@@ -12,6 +12,7 @@ from sklearn import metrics
 import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from utils import utils
 
 # valid to val
 def data_type_to_name(data_type):
@@ -26,9 +27,10 @@ class Evaluation:
 
     def __init__(self,
                  outputfolder,
-                 experiment_name,
                  data_name,
-                 train_fold_max,
+                 experiment_name,
+                 task,
+                 data_folds,
                  eval_params,
                  excel_writer):
         # options
@@ -45,8 +47,11 @@ class Evaluation:
         self.output_folder = outputfolder
         norm_output_folder = os.path.normpath(self.output_folder)
         self.output_folder_name = norm_output_folder.split(os.sep)[-1] # output folder name
+        self.data_name = data_name
         self.experiment_name = experiment_name
+        self.task = task
         self.data_folder = os.path.join(norm_output_folder, self.experiment_name, 'data')
+        self.suffix = self.eval_params['suffix']
         # output text
         self.out_text = ['folder: ' + self.output_folder_name,
                     'data_name: ' + data_name,
@@ -63,7 +68,7 @@ class Evaluation:
         if not os.path.exists(self.results_folder):
             os.makedirs(self.results_folder)
 
-        self.train_fold_max = train_fold_max
+        self.data_folds = data_folds
 
         # create column names
         self.dtype_list = [('label_i', int),
@@ -82,37 +87,57 @@ class Evaluation:
 
         self.fpr_fnr_names = ['FPR', 'FNR', 'TPR', 'TNR', 'PPV', 'FPR+FNR', 'J=TPR+TNR-1']
 
-        # load df table, ind matrix and MultiLabelBinarizer object
-        mlb_path = os.path.join(self.data_folder, 'tab_ind_mlb.pkl')
+        self.selection = {}
+        self.train_folds = {}
+        self.train_folds_range = {}
+        self.y_labels_train_tab = {}
+        self.y_labels_dict = {}
+        self.Np_Nn_dict = {}
 
-        if os.path.isfile(mlb_path): # file exists
-            with open(mlb_path, 'rb') as tokenizer:
-                [self.df_labels_full, y_labels_full, mlb] = pickle.load(tokenizer)
-                # form data for multi train folds case
-                if self.eval_params['add_train_folds']:
-                    self.train_folds = self.df_labels_full.loc[self.df_labels_full['strat_fold'] <= self.train_fold_max, 'strat_fold'].to_numpy()
-                    self.train_folds_range = [(fold, 'tr_fold_' + str(fold)) for fold in range(1, self.train_fold_max + 1)]
-                    self.y_labels_train_tab = y_labels_full[self.df_labels_full['strat_fold'] <= self.train_fold_max] # for checking correctness
+        # load base data
+        mlb = self.load_data(self.data_folder, self.data_name, '', self.eval_params)
+        if mlb:
+            self.classes = utils.mlb_change_class(mlb).classes_  # class labels list
         else:
-            mlb_path = os.path.join(self.data_folder, 'mlb.pkl')
-            if os.path.isfile(mlb_path):
-                with open(mlb_path, 'rb') as tokenizer:
-                    mlb = pickle.load(tokenizer)
-            else:
-                print(self.evaluate_text, '\nError: mlb.pkl file does not exist!')
-                self.state = False # False state of object
+            return
+
+        if 'data_set' in self.eval_params:
+            eval_params_ds = self.eval_params['data_set']
+            #data_folder_ds = os.path.join(norm_output_folder, eval_params_ds['exp_name'], 'data')
+            self.data_name_ds = eval_params_ds['data_name']
+            mlb = self.load_data(self.data_folder, self.data_name_ds, self.suffix, eval_params_ds)
+            if not mlb:
                 return
 
-        # class labels list
-        self.classes = mlb.classes_
-
         # load actual class labels
-        if not self.load_labels():
+        if not self.load_labels(self.data_name, ''):
             print(self.evaluate_text, '\nError: y_<data_type>.npy file does not exist!')
             self.state = False # False state of object
             return
 
+        # unite train and valid labels (True or False)
+        if self.use_train_valid_for_thr:
+            self.y_labels_thr = np.concatenate((self.y_labels_dict[self.data_types_ext[0]], self.y_labels_dict[self.data_types_ext[1]]), axis = 0) # 'train' & 'valid'
+            self.data_type_name = self.data_types_ext[0] + '_' + self.data_types_ext[1]
+            self.data_type_suffix = '_' + self.data_types_ext[0][0] + '_' + self.data_types_ext[1][0]
+        else:
+            self.y_labels_thr = self.y_labels_dict[self.data_types_ext[0]] # 'train'
+            self.data_type_name = self.data_types_ext[0]
+            self.data_type_suffix = '_' + self.data_types_ext[0][0]
+
+        self.data_type_name_thr = self.data_type_name + '_thr'
+        self.file_type = 'folds' + self.data_type_suffix + self.suffix
         self.out_text.append('data_type: ' + self.data_type_name) # data type for pdf first page only
+
+        self.N_labels = self.y_labels_thr.shape[1]
+        self.label_inds = range(self.N_labels)
+        self.Np_Nn_thr = self.calc_Np_Nn(self.y_labels_thr)
+
+        if 'data_set' in self.eval_params:
+            if not self.load_labels(self.data_name_ds, self.suffix):
+                print(self.evaluate_text, '\nError: y_<data_type>' + self.suffix + '.npy file does not exist!')
+                self.state = False # False state of object
+                return
 
         # Set pd.ExcelWriter object
         self.excel_writer = excel_writer
@@ -123,6 +148,49 @@ class Evaluation:
     # return state of object: True of False
     def __bool__(self):
         return self.state
+
+    # load df table, ind matrix and MultiLabelBinarizer object
+    def load_data(self, data_folder, data_name, suffix, eval_params):
+        mlb_path = os.path.join(data_folder, 'tab_ind_mlb' + suffix + '.pkl')
+        if os.path.isfile(mlb_path): # file exists
+            with open(mlb_path, 'rb') as tokenizer:
+                df_labels_full, y_labels_full, mlb = pickle.load(tokenizer)
+
+                # if swiched on select samples which classes intersect with base set of classes
+                if 'samples_of_classes' in eval_params and eval_params['samples_of_classes']:
+                    task = 'all_scp' if 'all' else self.task
+                    selection = df_labels_full[task].apply(lambda x: not set(x).isdisjoint(self.classes))
+                    self.selection[data_name] = {}
+                    for data_type in self.data_types_ext:
+                        if data_type == self.data_types_ext[0]:
+                            self.selection[data_name][data_type] = selection[df_labels_full['strat_fold'] <= self.data_folds[data_type]]
+                        else:
+                            self.selection[data_name][data_type] = selection[df_labels_full['strat_fold'] == self.data_folds[data_type]]
+                    df_labels_full = df_labels_full[selection]
+                    #y_labels_full = y_labels_full[selection]
+                elif suffix:
+                    df_labels_full = df_labels_full[df_labels_full.all_scp_len > 0]
+
+                train_fold_max = self.data_folds[self.data_types_ext[0]]
+                if y_labels_full.shape[0] == df_labels_full.shape[0]:
+                    self.y_labels_train_tab[data_name] = y_labels_full[df_labels_full['strat_fold'] <= train_fold_max] # for checking correctness
+
+                # form data for multi train folds case
+                if eval_params['add_train_folds']:
+                    self.train_folds[data_name] = df_labels_full.loc[df_labels_full['strat_fold'] <= train_fold_max, 'strat_fold'].to_numpy()
+                    self.train_folds_range[data_name] = [(fold, 'tr_fold_' + str(fold)) for fold in range(1, train_fold_max + 1)]
+
+        else:
+            mlb_path = os.path.join(data_folder, 'mlb' + suffix + '.pkl')
+            if os.path.isfile(mlb_path): # file exists
+                with open(mlb_path, 'rb') as tokenizer:
+                    mlb = pickle.load(tokenizer)
+            else:
+                print(self.evaluate_text, '\nError: mlb.pkl file does not exist!')
+                self.state = False # False state of object
+                mlb = None
+
+        return mlb
 
     # Np Nn calculation
     def calc_Np_Nn(self, y_labels):
@@ -135,48 +203,30 @@ class Evaluation:
         return Np_Nn
 
     # load actual class labels
-    def load_labels(self):
-
-        self.y_labels_dict = {}
-        self.Np_Nn_dict = {}
+    def load_labels(self, data_name, suffix):
 
         for data_type in self.data_types_ext:
-            name = data_type_to_name(data_type)
+            name = data_type_to_name(data_type) + suffix
             labels_path = os.path.join(self.data_folder, 'y_' + name + '.npy')
             if os.path.isfile(labels_path): # file exists
-                self.y_labels_dict[data_type] = np.load(labels_path, allow_pickle = True)
-                self.Np_Nn_dict[data_type] = self.calc_Np_Nn(self.y_labels_dict[data_type])
+                data_type_ds = data_type + suffix
+                self.y_labels_dict[data_type_ds] = np.load(labels_path, allow_pickle = True)
+                if data_name in self.selection:
+                    self.y_labels_dict[data_type_ds] = self.y_labels_dict[data_type_ds][self.selection[data_name][data_type]]
+                self.Np_Nn_dict[data_type_ds] = self.calc_Np_Nn(self.y_labels_dict[data_type_ds])
             else:
                 return False
 
         # check corectness of y_labels_train
-        if hasattr(self, 'y_labels_train_tab'):
-            assert np.array_equal(self.y_labels_train_tab, self.y_labels_dict[self.data_types_ext[0]]), 'y_labels_train is not equal to data from original table!' # 'train'
-
-        # unite train and valid labels (True or False)
-        if self.use_train_valid_for_thr:
-            self.y_labels_thr = np.concatenate((self.y_labels_dict[self.data_types_ext[0]], self.y_labels_dict[self.data_types_ext[1]]), axis = 0) # 'train' & 'valid'
-            self.data_type_name = self.data_types_ext[0] + '_' + self.data_types_ext[1]
-            self.data_type_suffix = '_' + self.data_types_ext[0][0] + '_' + self.data_types_ext[1][0]
-            #self.data_type_united = 'united' + self.data_type_suffix + '_thr_' + self.data_types_ext[2][0]
-        else:
-            self.y_labels_thr = self.y_labels_dict[self.data_types_ext[0]] # 'train'
-            self.data_type_name = self.data_types_ext[0]
-            self.data_type_suffix = '_' + self.data_types_ext[0][0]
-            #self.data_type_united = 'united' + self.data_type_suffix + '_thr_' + self.data_types_ext[1][0] + '_' + self.data_types_ext[2][0]
-
-        self.data_type_name_thr = self.data_type_name + '_thr'
-        self.file_type = 'folds' + self.data_type_suffix
-
-        self.N_labels = self.y_labels_thr.shape[1]
-        self.label_inds = range(self.N_labels)
-        self.Np_Nn_thr = self.calc_Np_Nn(self.y_labels_thr)
+        if data_name in self.y_labels_train_tab:
+            assert np.array_equal(self.y_labels_train_tab[data_name], self.y_labels_dict[self.data_types_ext[0] + suffix]), 'y_labels_train is not equal to data from original table!' # 'train'
 
         # add labels of train folds
-        if hasattr(self, 'train_folds_range'):
-            for (fold, data_type) in self.train_folds_range:
-                self.y_labels_dict[data_type] = self.y_labels_dict['train'][self.train_folds == fold]
-                self.Np_Nn_dict[data_type] = self.calc_Np_Nn(self.y_labels_dict[data_type])
+        if data_name in self.train_folds_range:
+            for (fold, data_type) in self.train_folds_range[data_name]:
+                data_type_ds = data_type + suffix
+                self.y_labels_dict[data_type_ds] = self.y_labels_dict['train' + suffix][self.train_folds[data_name] == fold]
+                self.Np_Nn_dict[data_type_ds] = self.calc_Np_Nn(self.y_labels_dict[data_type_ds])
 
         return True
 
@@ -361,7 +411,7 @@ class Evaluation:
         # create df_res_table
         df_res_table = self.create_table(self.Np_Nn_thr, model_txt)
 
-        path_conf_m_table = rpath + self.data_type_name_thr + '_conf_mat'
+        path_conf_m_table = rpath + self.data_type_name_thr + self.suffix + '_conf_mat'
 
         if self.eval_params['save_pdf_files']:
             # open pdf file
@@ -385,7 +435,10 @@ class Evaluation:
             y_pred_uniq, conf_m, fpr_fnr_etc = self.calc_fpr_fnr_etc(y_labels_col, y_preds_col)
 
             # ROC AUC
-            roc_auc = metrics.roc_auc_score(y_labels_col, y_preds_col)
+            if self.Np_Nn_thr[l, 0] > 0 and self.Np_Nn_thr[l, 1] > 0:
+                roc_auc = metrics.roc_auc_score(y_labels_col, y_preds_col)
+            else:
+                roc_auc = np.nan
 
             # write to dataframe
             df_fpr_fnr_table = pd.DataFrame(conf_m, columns = ['tp', 'fp', 'tn', 'fn'])
@@ -467,7 +520,10 @@ class Evaluation:
         #ROC_AUC
         roc_auc = np.zeros((self.N_labels, 1), dtype = float)
         for l in self.label_inds: # loop for labels
-            roc_auc[l, 0] = metrics.roc_auc_score(y_labels[:, l], y_preds[:, l]) # ROC AUC
+            if Np_Nn[l, 0] > 0 and Np_Nn[l, 1] > 0:
+                roc_auc[l, 0] = metrics.roc_auc_score(y_labels[:, l], y_preds[:, l]) # ROC AUC
+            else:
+                roc_auc[l, 0] = np.nan
 
         # write values to table
         #df_res_table.iloc[3:, 2:4] = Np_Nn # Np and Nn
@@ -502,6 +558,22 @@ class Evaluation:
 
         return df_res_table, self.form_output_table(df_mean_res, data_type)
 
+    # load predictions
+    def load_preds(self, mpath, data_name, suffix):
+        bypass_model = False
+        for data_type in self.data_types_ext:
+            name = data_type_to_name(data_type)
+            preds_path = mpath + 'y_' + name + '_pred' + suffix + '.npy'
+            if os.path.isfile(os.path.normpath(preds_path)): # file exists
+                data_type_ds = data_type + suffix
+                self.y_preds_dict[data_type_ds] = np.load(preds_path, allow_pickle = True)
+                if data_name in self.selection:
+                    self.y_preds_dict[data_type_ds] = self.y_preds_dict[data_type_ds][self.selection[data_name][data_type]]
+            else: # error
+                return False
+
+        return True
+
     # calc challenge metrics for models
     def challenge_metrics_models(self):
 
@@ -513,13 +585,21 @@ class Evaluation:
 
         #data_types_estim = self.data_types_ext # DEBUG
         # add data types to data_types_estim
-        if hasattr(self, 'train_folds_range'):
-            for (fold, data_type) in self.train_folds_range:
+        if self.data_name in self.train_folds_range:
+            for (_, data_type) in self.train_folds_range[self.data_name]:
                 data_types_estim.append(data_type)
 
         # add validation fold
         if self.use_train_valid_for_thr:
             data_types_estim.append(self.data_types_ext[1])
+
+        if 'data_set' in self.eval_params:
+            data_types_ds = [data_type + self.suffix for data_type in self.data_types_ext]
+            data_types_estim += data_types_ds
+
+            if self.data_name_ds in self.train_folds_range:
+                for (_, data_type) in self.train_folds_range[self.data_name_ds]:
+                    data_types_estim.append(data_type + self.suffix)
 
         #res_table_list = {}
         #for data_type in data_types_estim:
@@ -543,25 +623,18 @@ class Evaluation:
             rpath = self.output_folder + self.experiment_name + '/models/' + model + '/results/'
 
             # load predictions
-            y_preds_dict = {}
-            bypass_model = False
-            for data_type in self.data_types_ext:
-                name = data_type_to_name(data_type)
-                preds_path = mpath + 'y_' + name + '_pred.npy'
-                if os.path.isfile(os.path.normpath(preds_path)): # file exists
-                    y_preds_dict[data_type] = np.load(preds_path, allow_pickle = True)
-                else:
-                    bypass_model = True
-                    break
+            self.y_preds_dict = {}
+            bypass_model = not self.load_preds(mpath, self.data_name, '')
+
             # bypass model because of loading data error
             if bypass_model:
                 continue
 
             # unite train and valid predictions (True or False)
             if self.use_train_valid_for_thr:
-                y_preds_thr = np.concatenate((y_preds_dict[self.data_types_ext[0]], y_preds_dict[self.data_types_ext[1]]), axis = 0) # 'train' & 'valid'
+                y_preds_thr = np.concatenate((self.y_preds_dict[self.data_types_ext[0]], self.y_preds_dict[self.data_types_ext[1]]), axis = 0) # 'train' & 'valid'
             else:
-                y_preds_thr = y_preds_dict[self.data_types_ext[0]] # 'train'
+                y_preds_thr = self.y_preds_dict[self.data_types_ext[0]] # 'train'
 
             # calc roc_auc, fpr, fnr and build graphs and thresholds estimation
             df_res_table_thr, df_mean_res_thr = self.challenge_metrics_thr(y_preds_thr, rpath, model)
@@ -582,13 +655,22 @@ class Evaluation:
             mean_res_list = [df_mean_res_thr]
 
             # add predictions of train folds
-            if hasattr(self, 'train_folds_range'):
-                for (fold, data_type) in self.train_folds_range:
-                    y_preds_dict[data_type] = y_preds_dict['train'][self.train_folds == fold]
+            if self.data_name in self.train_folds_range:
+                for (fold, data_type) in self.train_folds_range[self.data_name]:
+                    self.y_preds_dict[data_type] = self.y_preds_dict['train'][self.train_folds[self.data_name] == fold]
+
+            # add predictions of data_set train, valid & test folds
+            if 'data_set' in self.eval_params:
+                self.load_preds(mpath, self.data_name_ds, self.suffix)
+
+                # add predictions of train folds
+                if self.data_name_ds in self.train_folds_range:
+                    for (fold, data_type) in self.train_folds_range[self.data_name_ds]:
+                        self.y_preds_dict[data_type + self.suffix] = self.y_preds_dict['train' + self.suffix][self.train_folds[self.data_name_ds] == fold]
 
             # calc estimation for test or valid and test
             for data_type in data_types_estim:
-                df_res_table, df_mean_res = self.challenge_metrics(self.y_labels_dict[data_type], y_preds_dict[data_type], thr_arr, model, data_type)
+                df_res_table, df_mean_res = self.challenge_metrics(self.y_labels_dict[data_type], self.y_preds_dict[data_type], thr_arr, model, data_type)
                 #res_table_list[data_type].append(df_res_table)
                 #df_mean_res.to_csv(os.path.join(rpath, data_type + self.data_type_suffix + '_results' + '.csv'))
 

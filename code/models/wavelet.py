@@ -158,9 +158,12 @@ class WaveletModel(ClassificationModel):
             self.model.fit(XFT_train, y_train, validation_data=(XFT_val, y_val), epochs=self.epochs, batch_size=128, callbacks=[mc_loss])#, mc_score])
             self.model.save(self.outputfolder +'last_model.h5')
 
-    def predict(self, X, datatype):
+    def predict(self, X, datatype, dataoutputfolder = None):
+
+        if not dataoutputfolder:
+            dataoutputfolder = self.outputfolder
         filename = 'XF_' + datatype + '.npy'
-        XF_path = self.outputfolder + filename
+        XF_path = os.path.join(dataoutputfolder, filename)
         if not os.path.exists(XF_path):
             XF = get_ecg_features(X, False)
             XF.dump(XF_path)
@@ -187,8 +190,8 @@ class WaveletModel(ClassificationModel):
                     ss = StandardScaler()
                     ss.fit(XF)
                     pickle.dump(ss, open(SS_path, 'wb'))
-                #else:
-                    # error
+                else:
+                    raise Exception('ss.pkl file does not exist!')
             else:
                 ss = pickle.load(open(SS_path, 'rb'))
 

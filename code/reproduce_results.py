@@ -31,10 +31,21 @@ def main(record_base_path):
         ]
 
     # Evaluation module additional options
+    set_data = True
+    data_set = {
+        'data_name': 'ICBEB',              # data name
+        'exp_name': 'exp_ICBEB',           # exp name
+        'task': 'all',                     # task
+        'datafolder': datafolder_icbeb,    # datafolder
+        'samples_of_classes' : False,      # if swiched on select samples which classes intersect with base set of classes
+        'add_train_folds' : True           # add train folds for analysis - True/False
+    }
+
     eval_params = {
         'data_types': ['train', 'valid', 'test'], # Data types
-        'save_mlb_file' : False,           # save mlb.pkl file in prepare()
         'N_thrs' : 2,                      # number of threshold criterion
+        'save_tab_ind_mlb_file' : True,    # save tab_ind_mlb.pkl file in prepare()
+        'save_mlb_file' : False,           # save mlb.pkl file in prepare()
         'use_train_valid_for_thr' : True,  # True: use train and valid data for threshold evaluation, False: use train data only for threshold evaluation
         'add_train_folds' : True,          # add train folds for analysis - True/False
         'save_to_excel' : True,            # save results to excel file - True/False
@@ -42,6 +53,11 @@ def main(record_base_path):
         'save_pdf_files' : False,          # save pdf files with graphs - True/False
         'save_raw_txt' : False             # save output csv files with raw data (by labels) - True/False
         }
+    if set_data:
+        eval_params['data_set'] = data_set # набор данных для проверки моделей
+        eval_params['suffix'] = '_' + data_set['data_name'].lower()
+    else:
+        eval_params['suffix'] = ''
 
     ##########################################
     # STANDARD SCP EXPERIMENTS ON PTBXL
@@ -87,14 +103,13 @@ def main(record_base_path):
                 e.evaluate()
 
         #generate greate summary table
-        #if mode != 'estim':
         summary_table.generate_summary_table(exps,
                                              None)
 
     ##########################################
     # EXPERIMENT BASED ICBEB DATA
     ##########################################
-    use_ICBEB = True
+    use_ICBEB = False
 
     if use_ICBEB:
         data_name = 'ICBEB'
@@ -125,7 +140,6 @@ def main(record_base_path):
             e.evaluate()
 
         # generate greate summary table
-        #if mode != 'estim':
         summary_table.generate_summary_table([exp_name],
                                              None)
 
