@@ -400,11 +400,13 @@ class Summary_Table:
         self.folder_name = self.folder.split(os.sep)[-1] # output folder name
         self.eval_params = eval_params
         self.suffix = self.eval_params['suffix']
+        if 'data_set' in self.eval_params:
+            sel_suffix = eval_params['data_set']['sel_suffix']
 
         if eval_params['use_train_valid_for_thr']: # base: train & valid, estim: test
-            self.file_type = 'folds_t_v' + self.suffix
+            self.file_type = 'folds_t_v' + self.suffix + sel_suffix
         else:                                      # base: train, estim: valid, test
-            self.file_type = 'folds_t' + self.suffix
+            self.file_type = 'folds_t' + self.suffix + sel_suffix
 
         self.d_types_str = 'results_' + self.file_type + '_' + self.data_name.lower()
 

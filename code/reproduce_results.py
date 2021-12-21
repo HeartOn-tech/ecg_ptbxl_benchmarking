@@ -37,7 +37,7 @@ def main(record_base_path):
         'exp_name': 'exp_ICBEB',           # exp name
         'task': 'all',                     # task
         'datafolder': datafolder_icbeb,    # datafolder
-        'samples_of_classes' : False,      # if swiched on select samples which classes intersect with base set of classes
+        'samples_of_classes' : True,       # if swiched on select samples which classes intersect with base set of classes
         'add_train_folds' : True           # add train folds for analysis - True/False
     }
 
@@ -56,6 +56,10 @@ def main(record_base_path):
     if set_data:
         eval_params['data_set'] = data_set # набор данных для проверки моделей
         eval_params['suffix'] = '_' + data_set['data_name'].lower()
+        if data_set['samples_of_classes']:
+            eval_params['data_set']['sel_suffix'] = '_sel'
+        else:
+            eval_params['data_set']['sel_suffix'] = '_wo_sel'
     else:
         eval_params['suffix'] = ''
 

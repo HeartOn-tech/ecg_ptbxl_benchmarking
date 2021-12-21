@@ -126,7 +126,9 @@ class Evaluation:
             self.data_type_suffix = '_' + self.data_types_ext[0][0]
 
         self.data_type_name_thr = self.data_type_name + '_thr'
-        self.file_type = 'folds' + self.data_type_suffix + self.suffix
+        if 'data_set' in self.eval_params:
+            sel_suffix = eval_params['data_set']['sel_suffix']
+        self.file_type = 'folds' + self.data_type_suffix + self.suffix + sel_suffix
         self.out_text.append('data_type: ' + self.data_type_name) # data type for pdf first page only
 
         self.N_labels = self.y_labels_thr.shape[1]
@@ -158,21 +160,24 @@ class Evaluation:
 
                 # if swiched on select samples which classes intersect with base set of classes
                 if 'samples_of_classes' in eval_params and eval_params['samples_of_classes']:
-                    task = 'all_scp' if 'all' else self.task
+                    task = 'all_scp' if self.task == 'all' else self.task
                     selection = df_labels_full[task].apply(lambda x: not set(x).isdisjoint(self.classes))
+                    df_labels_full_sel = df_labels_full[selection]
                     self.selection[data_name] = {}
                     for data_type in self.data_types_ext:
+                        data_type_ds = data_type + suffix
                         if data_type == self.data_types_ext[0]:
                             self.selection[data_name][data_type] = selection[df_labels_full['strat_fold'] <= self.data_folds[data_type]]
+                            self.y_labels_dict[data_type_ds] = y_labels_full[df_labels_full_sel['strat_fold'] <= self.data_folds[data_type]]
                         else:
                             self.selection[data_name][data_type] = selection[df_labels_full['strat_fold'] == self.data_folds[data_type]]
-                    df_labels_full = df_labels_full[selection]
-                    #y_labels_full = y_labels_full[selection]
+                            self.y_labels_dict[data_type_ds] = y_labels_full[df_labels_full_sel['strat_fold'] == self.data_folds[data_type]]
+                    df_labels_full = df_labels_full_sel
                 elif suffix:
                     df_labels_full = df_labels_full[df_labels_full.all_scp_len > 0]
 
                 train_fold_max = self.data_folds[self.data_types_ext[0]]
-                if y_labels_full.shape[0] == df_labels_full.shape[0]:
+                if data_name not in self.selection and y_labels_full.shape[0] == df_labels_full.shape[0]:
                     self.y_labels_train_tab[data_name] = y_labels_full[df_labels_full['strat_fold'] <= train_fold_max] # for checking correctness
 
                 # form data for multi train folds case
@@ -210,9 +215,10 @@ class Evaluation:
             labels_path = os.path.join(self.data_folder, 'y_' + name + '.npy')
             if os.path.isfile(labels_path): # file exists
                 data_type_ds = data_type + suffix
-                self.y_labels_dict[data_type_ds] = np.load(labels_path, allow_pickle = True)
-                if data_name in self.selection:
-                    self.y_labels_dict[data_type_ds] = self.y_labels_dict[data_type_ds][self.selection[data_name][data_type]]
+                if data_type_ds not in self.y_labels_dict:
+                    self.y_labels_dict[data_type_ds] = np.load(labels_path, allow_pickle = True)
+                #if data_name in self.selection:
+                #    self.y_labels_dict[data_type_ds] = self.y_labels_dict[data_type_ds][self.selection[data_name][data_type]]
                 self.Np_Nn_dict[data_type_ds] = self.calc_Np_Nn(self.y_labels_dict[data_type_ds])
             else:
                 return False
