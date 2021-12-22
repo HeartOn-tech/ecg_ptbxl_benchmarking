@@ -278,6 +278,11 @@ def compute_label_aggregations(df, folder, ctype, change_class):
 
     return df
 
+def select_all_scp(XX, YY):
+    X = XX[YY.scp_codes_len > 0]
+    Y = YY[YY.scp_codes_len > 0]
+    return X, Y
+
 def select_data(XX, YY, ctype, min_samples, outputfolder, eval_params, mlb, save):
     # convert multilabel to multi-hot
     mlb_loaded = bool(mlb)
@@ -287,8 +292,11 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, eval_params, mlb, save
         mlb = MultiLabelBinarizer()
 
     if ctype == 'diagnostic':
-        X = XX[YY.diagnostic_len > 0]
-        Y = YY[YY.diagnostic_len > 0]
+        if 'data_set' in eval_params:
+            X, Y = select_all_scp(XX, YY)
+        else:
+            X = XX[YY.diagnostic_len > 0]
+            Y = YY[YY.diagnostic_len > 0]
         if not mlb_loaded:
             mlb.fit(Y.diagnostic.values)
         y = mlb.transform(Y.diagnostic.values)
@@ -297,8 +305,11 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, eval_params, mlb, save
         counts = counts[counts > min_samples]
         YY.subdiagnostic = YY.subdiagnostic.apply(lambda x: list(set(x).intersection(set(counts.index.values))))
         YY['subdiagnostic_len'] = YY.subdiagnostic.apply(lambda x: len(x))
-        X = XX[YY.subdiagnostic_len > 0]
-        Y = YY[YY.subdiagnostic_len > 0]
+        if 'data_set' in eval_params:
+            X, Y = select_all_scp(XX, YY)
+        else:
+            X = XX[YY.subdiagnostic_len > 0]
+            Y = YY[YY.subdiagnostic_len > 0]
         if not mlb_loaded:
             mlb.fit(Y.subdiagnostic.values)
         y = mlb.transform(Y.subdiagnostic.values)
@@ -307,8 +318,11 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, eval_params, mlb, save
         counts = counts[counts > min_samples]
         YY.superdiagnostic = YY.superdiagnostic.apply(lambda x: list(set(x).intersection(set(counts.index.values))))
         YY['superdiagnostic_len'] = YY.superdiagnostic.apply(lambda x: len(x))
-        X = XX[YY.superdiagnostic_len > 0]
-        Y = YY[YY.superdiagnostic_len > 0]
+        if 'data_set' in eval_params:
+            X, Y = select_all_scp(XX, YY)
+        else:
+            X = XX[YY.superdiagnostic_len > 0]
+            Y = YY[YY.superdiagnostic_len > 0]
         if not mlb_loaded:
             mlb.fit(Y.superdiagnostic.values)
         y = mlb.transform(Y.superdiagnostic.values)
@@ -319,8 +333,11 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, eval_params, mlb, save
         YY.form = YY.form.apply(lambda x: list(set(x).intersection(set(counts.index.values))))
         YY['form_len'] = YY.form.apply(lambda x: len(x))
         # select
-        X = XX[YY.form_len > 0]
-        Y = YY[YY.form_len > 0]
+        if 'data_set' in eval_params:
+            X, Y = select_all_scp(XX, YY)
+        else:
+            X = XX[YY.form_len > 0]
+            Y = YY[YY.form_len > 0]
         if not mlb_loaded:
             mlb.fit(Y.form.values)
         y = mlb.transform(Y.form.values)
@@ -331,8 +348,11 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, eval_params, mlb, save
         YY.rhythm = YY.rhythm.apply(lambda x: list(set(x).intersection(set(counts.index.values))))
         YY['rhythm_len'] = YY.rhythm.apply(lambda x: len(x))
         # select
-        X = XX[YY.rhythm_len > 0]
-        Y = YY[YY.rhythm_len > 0]
+        if 'data_set' in eval_params:
+            X, Y = select_all_scp(XX, YY)
+        else:
+            X = XX[YY.rhythm_len > 0]
+            Y = YY[YY.rhythm_len > 0]
         if not mlb_loaded:
             mlb.fit(Y.rhythm.values)
         y = mlb.transform(Y.rhythm.values)
@@ -363,7 +383,7 @@ def select_data(XX, YY, ctype, min_samples, outputfolder, eval_params, mlb, save
     # mlb - LabelBinarizer
     if save and eval_params['save_tab_ind_mlb_file']:
         with open(outputfolder + 'tab_ind_mlb' + suffix + '.pkl', 'wb') as tokenizer:
-            pickle.dump([YY if suffix else Y, y, mlb], tokenizer)
+            pickle.dump([Y, y, mlb], tokenizer)
 
     return X, Y, y, mlb
 

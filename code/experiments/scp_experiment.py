@@ -65,11 +65,11 @@ class SCP_Experiment():
         if 'data_set' in self.eval_params:
             data_set = self.eval_params['data_set']
             data_name = data_set['data_name']
-            task = data_set['task']
+            #task = data_set['task']
             datafolder = data_set['datafolder']
         else:
             data_name = self.data_name
-            task = self.task
+            #task = self.task
             datafolder = self.datafolder
 
         self.suffix = self.eval_params['suffix']
@@ -78,7 +78,7 @@ class SCP_Experiment():
         self.raw_data, self.raw_labels = utils.load_dataset(data_name, datafolder, self.sampling_frequency)
 
         # Preprocess label data
-        self.labels = utils.compute_label_aggregations(self.raw_labels, datafolder, task, bool(self.suffix))
+        self.labels = utils.compute_label_aggregations(self.raw_labels, datafolder, self.task, bool(self.suffix))
 
         if 'data_set' in self.eval_params:
             mlb_path = os.path.join(self.outputfolder, self.experiment_name, 'data', 'tab_ind_mlb.pkl')
@@ -92,11 +92,11 @@ class SCP_Experiment():
             mlb = None
 
         # Select relevant data and convert to one-hot
-        self.data, self.labels, self.Y, _ = utils.select_data(self.raw_data, self.labels, task, self.min_samples, self.outputfolder + self.experiment_name + '/data/', self.eval_params, mlb, not bool(self.suffix))
+        self.data, self.labels, self.Y, _ = utils.select_data(self.raw_data, self.labels, self.task, self.min_samples, self.outputfolder + self.experiment_name + '/data/', self.eval_params, mlb, True) # not bool(self.suffix)
 
-        if 'data_set' in self.eval_params:
-            self.labels_ds = utils.compute_label_aggregations(self.raw_labels, datafolder, self.task, bool(self.suffix))
-            utils.select_data(self.raw_data, self.labels_ds, self.task, self.min_samples, self.outputfolder + self.experiment_name + '/data/', self.eval_params, mlb, True)
+        #if 'data_set' in self.eval_params:
+        #    self.labels_ds = utils.compute_label_aggregations(self.raw_labels, datafolder, self.task, bool(self.suffix))
+        #    utils.select_data(self.raw_data, self.labels_ds, self.task, self.min_samples, self.outputfolder + self.experiment_name + '/data/', self.eval_params, mlb, True)
 
         self.input_shape = self.data[0].shape
 

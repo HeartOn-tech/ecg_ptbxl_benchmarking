@@ -162,23 +162,24 @@ class Evaluation:
                 if 'samples_of_classes' in eval_params and eval_params['samples_of_classes']:
                     task = 'all_scp' if self.task == 'all' else self.task
                     selection = df_labels_full[task].apply(lambda x: not set(x).isdisjoint(self.classes))
-                    df_labels_full_sel = df_labels_full[selection]
+                    #df_labels_full_sel = df_labels_full[selection]
                     self.selection[data_name] = {}
                     for data_type in self.data_types_ext:
                         data_type_ds = data_type + suffix
                         if data_type == self.data_types_ext[0]:
                             self.selection[data_name][data_type] = selection[df_labels_full['strat_fold'] <= self.data_folds[data_type]]
-                            self.y_labels_dict[data_type_ds] = y_labels_full[df_labels_full_sel['strat_fold'] <= self.data_folds[data_type]]
+                            #self.y_labels_dict[data_type_ds] = y_labels_full[df_labels_full_sel['strat_fold'] <= self.data_folds[data_type]]
                         else:
                             self.selection[data_name][data_type] = selection[df_labels_full['strat_fold'] == self.data_folds[data_type]]
-                            self.y_labels_dict[data_type_ds] = y_labels_full[df_labels_full_sel['strat_fold'] == self.data_folds[data_type]]
-                    df_labels_full = df_labels_full_sel
-                elif suffix:
-                    df_labels_full = df_labels_full[df_labels_full.all_scp_len > 0]
+                            #self.y_labels_dict[data_type_ds] = y_labels_full[df_labels_full_sel['strat_fold'] == self.data_folds[data_type]]
+                    df_labels_full = df_labels_full[selection]
+                    y_labels_full = y_labels_full[selection]
+                #elif suffix:
+                #    df_labels_full = df_labels_full[df_labels_full.all_scp_len > 0]
 
                 train_fold_max = self.data_folds[self.data_types_ext[0]]
-                if data_name not in self.selection and y_labels_full.shape[0] == df_labels_full.shape[0]:
-                    self.y_labels_train_tab[data_name] = y_labels_full[df_labels_full['strat_fold'] <= train_fold_max] # for checking correctness
+                #if data_name not in self.selection and y_labels_full.shape[0] == df_labels_full.shape[0]:
+                self.y_labels_train_tab[data_name] = y_labels_full[df_labels_full['strat_fold'] <= train_fold_max] # for checking correctness
 
                 # form data for multi train folds case
                 if eval_params['add_train_folds']:
@@ -215,10 +216,10 @@ class Evaluation:
             labels_path = os.path.join(self.data_folder, 'y_' + name + '.npy')
             if os.path.isfile(labels_path): # file exists
                 data_type_ds = data_type + suffix
-                if data_type_ds not in self.y_labels_dict:
-                    self.y_labels_dict[data_type_ds] = np.load(labels_path, allow_pickle = True)
-                #if data_name in self.selection:
-                #    self.y_labels_dict[data_type_ds] = self.y_labels_dict[data_type_ds][self.selection[data_name][data_type]]
+                #if data_type_ds not in self.y_labels_dict:
+                self.y_labels_dict[data_type_ds] = np.load(labels_path, allow_pickle = True)
+                if data_name in self.selection:
+                    self.y_labels_dict[data_type_ds] = self.y_labels_dict[data_type_ds][self.selection[data_name][data_type]]
                 self.Np_Nn_dict[data_type_ds] = self.calc_Np_Nn(self.y_labels_dict[data_type_ds])
             else:
                 return False
@@ -566,7 +567,7 @@ class Evaluation:
 
     # load predictions
     def load_preds(self, mpath, data_name, suffix):
-        bypass_model = False
+        #bypass_model = False
         for data_type in self.data_types_ext:
             name = data_type_to_name(data_type)
             preds_path = mpath + 'y_' + name + '_pred' + suffix + '.npy'
